@@ -1,11 +1,12 @@
-#ifndef RELAY_HPP
-#define RELAY_HPP
+#ifndef POWER_HPP
+#define POWER_HPP
 
 #include "servo2040.hpp"
 
 using namespace servo;
 
-class Relay {
+
+class PowerTrace {
 
 private:
     uint8_t pin;
@@ -13,34 +14,34 @@ private:
 
 public:
 
-    Relay(uint8_t gpio_pin) : pin(gpio_pin), state(false) {
+    PowerTrace(uint8_t gpio_pin) : pin(gpio_pin), state(false) {
         gpio_init(pin);
         gpio_set_dir(pin, GPIO_OUT);
-        gpio_put(pin, 0); // Ensure the relay starts in OFF state
+        gpio_put(pin, 0); // Ensure starts at OFF state
     }
 
-    // Turn the relay ON
+    // Turn power to the servos ON
     void on() {
         gpio_put(pin, 1);
         state = true;
     }
 
-    // Turn the relay OFF
+    // Turn power to the servos OFF
     void off() {
         gpio_put(pin, 0);
         state = false;
     }
 
-    // Toggle the relay state
+    // Toggle power
     void toggle() {
         state = !state;
         gpio_put(pin, state);
     }
 
-    // Get the current relay state
+    // Get the current state
     bool is_on() const {
         return state;
     }
 };
 
-#endif // RELAY_HPP
+#endif // POWER_HPP

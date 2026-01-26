@@ -1,26 +1,25 @@
-# Hexapod Operator
+# Hexapod Firmware
 
-My hexapod robot consists of two parts: a Controller and an Operator. The Controller is responsible for generating commands, which are then sent to the Operator for execution. I used a Raspberry Pi as Controller  and a Servo2040 board as Operator, for handling low-level control of the hexapod's servos.
 This repository contains the firmware for the Servo2040 board.
 
 For a complete overview of the project refer to the [main Hexapod repository](https://github.com/ggldnl/Hexapod.git). Take also a look to the [repository containing the Controller's code](https://github.com/ggldnl/Hexapod-Controller.git). 
 
-Below, you will find instructions on how to build and deploy the code and info on how the communication protocol I designed works.
+Below, you will find instructions on how to build and deploy the code and info on how the communication protocol between the two boards works.
 
 ## 🛠️ Build and deployment
 
 Before you start, take a look at this [template](https://github.com/pimoroni/pico-boilerplate?tab=readme-ov-file#before-you-start). This served as starting point to develop the firmware.
 
-It's easier if you make a `pico` directory or similar in which you keep the SDK, Pimoroni Libraries and this project. This makes it easier to include libraries. At the end you will have this directory structure:
+It's easier if you make a `pico` directory or similar in which you keep the SDK, Pimoroni Libraries and this repo. This makes it easier to include libraries. At the end you will have this directory structure:
 
 ```
 pico
-├── Hexapod-Operator
+├── Hexapod-Firmware
 ├── pico-sdk
 └── pimoroni-pico
 ```
 
-Feel free to use another name for the `pico` directory. I will use this out of simplicity. 
+Feel free to use another name for the `pico` directory, I'll use this out of simplicity. 
 
 ### Prepare the build environment
 
@@ -61,7 +60,7 @@ git clone https://github.com/pimoroni/pimoroni-pico
 ### Clone the project
 
 ```bash
-git clone https://github.com/ggldnl/Hexapod-Operator
+git clone https://github.com/ggldnl/Hexapod-Firmware
 ```
 
 If you have not or don't want to set `PICO_SDK_PATH` and you are using vscode, you can edit `.vscode/settings.json` to pass the path directly to CMake.
@@ -82,10 +81,10 @@ Once you compile the project you will end up with a `Hexapod.uf2` file inside th
 ### Delpoy
 
 - Connect the servo2040 board to the computer;
-- Hold down the `boot/user` button, press the `reset` button at the same time, and let go of both buttons. The Servo2040 should now appear as drive to the computer;
+- Hold down the `boot/user` button, press the `reset` button at the same time, and let go of both buttons. The Servo2040 should now appear as a drive on the computer;
 - Drag and drop the `Hexapod.uf2` image file to the Servo2040 drive, the device will automatically reboot and start the loaded program.
 
-If you built the firmware on the raspberry pi that you will use for the Hexapod and you happen to be connected to it with ssh, you can:
+If you built the firmware on the Raspberry Pi that you will use for the Hexapod and you happen to be connected to it with ssh, you can:
 
 - Connect the servo2040 board to the raspberry through usb;
 - Hold down the `boot/user` button, press the `reset` button at the same time, and let go of both buttons. The Servo2040 should now appear as a block device when issuing `lsblk`;
@@ -96,12 +95,29 @@ If you built the firmware on the raspberry pi that you will use for the Hexapod 
 
 Connect the Servo2040 board to the raspberry pi as follows:
 
-| Raspberry    | Servo2040 |
-|--------------|-----------|
-| 5V           | 5V        |
-| GND          | GND       |
-| GPIO14 (TXD) | SDA (RX)  |
-| GPIO15 (RXD) | SCL (TX)  |
+<!-- Table is small, this way it fits the whole page -->
+<table style="width:100%; border-collapse: collapse;">
+  <tr>
+    <th>Raspberry</th>
+    <th>Servo2040</th>
+  </tr>
+  <tr>
+    <td>5V</td>
+    <td>5V</td>
+  </tr>
+  <tr>
+    <td>GND</td>
+    <td>GND</td>
+  </tr>
+  <tr>
+    <td>GPIO14 (TXD)</td>
+    <td>SDA (RX)</td>
+  </tr>
+  <tr>
+    <td>GPIO15 (RXD)</td>
+    <td>SCL (TX)</td>
+  </tr>
+</table>
 
 Remember to enable hardware uart: 
 - `sudo raspi-config` > `Interface Options` > `Serial Port`
@@ -111,59 +127,348 @@ Remember to enable hardware uart:
 
 ## 📡 Communication protocol
 
-This paragraph outlines the specifications for the communication protocol. Commands are sent from the controlling machine (Raspberry Pi) to the operator (Servo2040) over a serial connection. The two must agreen on the instruction table beforehand. 
+This paragraph outlines the specifications for the communication protocol. Commands are sent from the Raspberry Pi to the Servo2040 and backwards, over a serial connection. 
+
+### HDLC
+
+The protocol I decided to use is essentially a compact version of HDLC (which stands for High-Level Data Link Control). 
+
+HDLC is a communication protocol used for transmitting data between devices reliably. Originally, it was used in multi-device networks, where one device acted as the master and others as slaves. Currently, HDLC is primarily employed in point-to-point connections, such as between routers or network interfaces.
+
+It works by sending frames like this:
+
+<table style="width:100%; border-collapse: collapse;">
+  <tr>
+    <th>SOF</th>
+    <th>LEN</th>
+    <th>OPCODE</th>
+    <th>DATA</th>
+    <th>CRC</th>
+    <th>EOF</th>
+  </tr>
+  <tr>
+    <td>1B</td>
+    <td>1B</td>
+    <td>1B</td>
+    <td>N bytes</td>
+    <td>2B</td>
+    <td>1B</td>
+  </tr>
+</table>
+
+<!-- Table is small, this way it fits the whole page -->
+<table style="width:100%; border-collapse: collapse;">
+  <tr>
+    <th>Field</th>
+    <th>Size (bytes)</th>
+    <th>Description</th>
+  </tr>
+<tr>
+    <td>SOF</td>
+    <td>1</td>
+    <td>Start-of-frame marker (`0xAA`)</td>
+  </tr>
+  <tr>
+    <td>LEN</td>
+    <td>1</td>
+    <td>Length of `OPCODE + DATA`</td>
+  </tr>
+  <tr>
+    <td>OPCODE</td>
+    <td>1</td>
+    <td>Command identifier</td>
+  </tr>
+  <tr>
+    <td>DATA</td>
+    <td>N</td>
+    <td>Arguments (binary)</td>
+  </tr>
+  <tr>
+    <td>CRC</td>
+    <td>2</td>
+    <td>CRC-16 over `LEN + OPCODE + DATA`</td>
+  </tr>
+  <tr>
+    <td>EOF</td>
+    <td>1</td>
+    <td>End-of-frame marker (`0x55`)</td>
+  </tr>
+</table>
+
+CRC-16 is a 16-bit cyclic redundancy check used to detect errors in transmitted frames. When a receiver gets a frame, it recomputes the CRC-16 and compares it to the received FCS. If they differ, the frame is considered corrupted.
 
 ### Instruction set
 
-The following table describes the supported operations, their corresponding opcodes, the expected arguments, and the response format:
+I used the Command design pattern to dispatch commands once extracted from a message.
 
-| Operation              | OpCode (Hex) | Arguments                                                     | Response          |
-|------------------------|--------------|---------------------------------------------------------------|-------------------|
-| Get Voltage            | `0x01`       | None                                                          | `<val>` (4 bytes) |
-| Get Current            | `0x02`       | None                                                          | `<val>` (4 bytes) |
-| Read Sensor            | `0x03`       | `<pin>` (1 byte)                                              | `<val>` (4 bytes) |
-| Set LED                | `0x04`       | `<pin>` (1 byte) `<r>` (1 byte) `<g>` (1 byte) `<b>` (1 byte) | `0x00`  (1 byte)  |
-| Set LEDs               | `0x05`       | `<num>` (1 byte) `<pin>` `<r>` `<g>` `<b>` (4 bytes) x num    | `0x00`  (1 byte)  |
-| Attach Servos          | `0x06`       | None                                                          | `0x00`  (1 byte)  |
-| Detach Servos          | `0x07`       | None                                                          | `0x00`  (1 byte)  |
-| Set Servo Pulse Width  | `0x08`       | `<pin>` (1 byte) `<pulse_width>` (4 bytes)                    | `0x00`  (1 byte)  |
-| Set Servos Pulse Width | `0x09`       | `<num>` (1 byte) `<pin>` `<pulse_width>` (5 bytes) x num      | `0x00`  (1 byte)  |
-| Set Servo Angle        | `0x0A`       | `<pin>` (1 byte) `<angle>` (4 bytes)                          | `0x00`  (1 byte)  |
-| Set Servo Angles       | `0x0B`       | `<num>` (1 byte) `<pin>` `<angle>` (5 bytes) x num            | `0x00`  (1 byte)  |
-| Connect Relay          | `0x0C`       | None                                                          | `0x00`  (1 byte)  |
-| Disconnect Relay       | `0x0D`       | None                                                          | `0x00`  (1 byte)  |
+The following table describes the supported operations, their opcodes, the expected arguments, and the response:
+
+<table style="width:100%; border-collapse:collapse;">
+  <tr>
+    <th style="text-align:left;">Operation</th>
+    <th style="text-align:left;">OpCode</th>
+    <th style="text-align:left;">Arguments</th>
+    <th style="text-align:left;">Response</th>
+  </tr>
+  <tr>
+    <td>Get Voltage</td>
+    <td><code>0x01</code></td>
+    <td>None</td>
+    <td>voltage(4b)</td>
+  </tr>
+
+  <tr>
+    <td>Get Current</td>
+    <td><code>0x02</code></td>
+    <td>None</td>
+    <td>current(4b)</td>
+  </tr>
+
+  <tr>
+    <td>Read Sensor</td>
+    <td><code>0x03</code></td>
+    <td>pin (1b)</td>
+    <td>value(4b)</td>
+  </tr>
+
+  <tr>
+    <td>Set LED</td>
+    <td><code>0x04</code></td>
+    <td>pin(1b), r(1b), g(1b), b(1b)</td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Set LEDs</td>
+    <td><code>0x05</code></td>
+    <td>
+      count(1b),<br>
+      [pin(1b), r(1b), g(1b), b(1b)] × count
+    </td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Get LED</td>
+    <td><code>0x06</code></td>
+    <td>pin (1b)</td>
+    <td>r(1b), g(1b), b(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Get LEDs</td>
+    <td><code>0x07</code></td>
+    <td>count(1b), [pin(1b)] × count</td>
+    <td>[r(1b), g(1b), b(1b)] × count</td>
+  </tr>
+
+  <tr>
+    <td>Attach Servos</td>
+    <td><code>0x08</code></td>
+    <td>None</td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Detach Servos</td>
+    <td><code>0x09</code></td>
+    <td>None</td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Pulse Width</td>
+    <td><code>0x0A</code></td>
+    <td>pin(1b), pulse_width(4b)</td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Pulse Widths</td>
+    <td><code>0x0B</code></td>
+    <td>
+      count(1b),<br>
+      [pin(1b), pulse_width(4b)] × count
+    </td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Angle</td>
+    <td><code>0x0C</code></td>
+    <td>pin(1b), angle(4b)</td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Angles</td>
+    <td><code>0x0D</code></td>
+    <td>
+      count(1b),<br>
+      [pin(1b), angle(4b)] × count
+    </td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Pulse Width</td>
+    <td><code>0x0E</code></td>
+    <td>pin (1b)</td>
+    <td>pulse_width(4b)</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Pulse Widths</td>
+    <td><code>0x0F</code></td>
+    <td>count(1b), [pin(1b)] × count</td>
+    <td>pulse_width(4b) × count</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Angle</td>
+    <td><code>0x10</code></td>
+    <td>pin(1b)</td>
+    <td>angle(4b)</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Angles</td>
+    <td><code>0x11</code></td>
+    <td>count(1b), [pin(1b)] × count</td>
+    <td>angle(4b) × count</td>
+  </tr>
+
+  <tr>
+    <td>Connect Power</td>
+    <td><code>0x12</code></td>
+    <td>None</td>
+    <td>status(1b)</td>
+  </tr>
+
+  <tr>
+    <td>Disconnect Power</td>
+    <td><code>0x13</code></td>
+    <td>None</td>
+    <td>status(1b)</td>
+  </tr>
+</table>
+
+The response is always guaranteed. For commands that return data (e.g. `get_voltage`), a successful execution returns the actual requested data, while a failure returns all bytes set to `0x00`. For commands that perform actions (e.g. `set_led`), a successful execution returns `0x01`, while a failure returns `0x00`. The length of arguments and responses are expressed in bytes (e.g. 4b means 4 bytes i.e. a float).
 
 Description table:
 
-| Operation              | Description                                         |
-|------------------------|-----------------------------------------------------|
-| Get Voltage            | Reads the voltage on the external trace             |
-| Get Current            | Reads the current on the external trace             |
-| Read Sensor            | Reads the voltage value of an analog pin            |
-| Set LED                | Sets the rgb value for the given LED                |
-| Set LEDs               | For each LED pin, sets the respective rgb value     |
-| Attach Servos          | Attaches all the servos                             |
-| Detach Servos          | Detaches all the servos                             |
-| Set Servo Pulse Width  | Set the pulse width for the specified servo         |
-| Set Servos Pulse Width | For each Servo pin, sets the respective pulse width |
-| Set Servo Angle        | Set the angle for the specified servo               |
-| Set Servo Angles       | For each Servo pin, sets the respective angle       |
-| Connect Relay          | Turns the relay on, giving power to the servos      |
-| Disconnect Relay       | Turns the relay off, disconnecting the servos       |
+<table style="width:100%; border-collapse:collapse;">
+  <tr>
+    <th style="text-align:left;">Operation</th>
+    <th style="text-align:left;">Description</th>
+  </tr>
 
-Leading `0xAA` and trailing `0xFF` bytes are added and serve as packet delimiters. 
+  <tr>
+    <td>Get Voltage</td>
+    <td>Reads the voltage present on the external power line.</td>
+  </tr>
 
-The protocol is designed using the Command Design Pattern, which simplifies the addition of new commands. 
+  <tr>
+    <td>Get Current</td>
+    <td>Reads the current flowing through the external power line.</td>
+  </tr>
+
+  <tr>
+    <td>Read Sensor</td>
+    <td>Reads the analog value of the specified input pin.</td>
+  </tr>
+
+  <tr>
+    <td>Set LED</td>
+    <td>Sets the RGB color of a single LED connected to the specified pin.</td>
+  </tr>
+
+  <tr>
+    <td>Set LEDs</td>
+    <td>Sets the RGB color of multiple LEDs in a single command.</td>
+  </tr>
+
+  <tr>
+    <td>Get LED</td>
+    <td>Reads the current RGB color of the specified LED.</td>
+  </tr>
+
+  <tr>
+    <td>Get LEDs</td>
+    <td>Reads the current RGB color of multiple LEDs.</td>
+  </tr>
+
+  <tr>
+    <td>Attach Servos</td>
+    <td>Initializes and attaches all configured servo outputs.</td>
+  </tr>
+
+  <tr>
+    <td>Detach Servos</td>
+    <td>Detaches all servo outputs and disables signal generation.</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Pulse Width</td>
+    <td>Sets the pulse width for a single servo.</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Pulse Widths</td>
+    <td>Sets the pulse width for multiple servos.</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Angle</td>
+    <td>Sets the target angle for a single servo.</td>
+  </tr>
+
+  <tr>
+    <td>Set Servo Angles</td>
+    <td>Sets the target angle for multiple servos.</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Pulse Width</td>
+    <td>Reads the current pulse width of the specified servo.</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Pulse Widths</td>
+    <td>Reads the current pulse width of multiple servos.</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Angle</td>
+    <td>Reads the current angle of the specified servo.</td>
+  </tr>
+
+  <tr>
+    <td>Get Servo Angles</td>
+    <td>Reads the current angle of multiple servos.</td>
+  </tr>
+
+  <tr>
+    <td>Connect Power</td>
+    <td>Enables external power delivery to the servos.</td>
+  </tr>
+
+  <tr>
+    <td>Disconnect Power</td>
+    <td>Disables external power delivery to the servos.</td>
+  </tr>
+</table>
+
 
 ### Implementation details
 
 We start defining a shared object pool. 
 
 ```cpp
-// Shared object pool
-ServoCluster servos = ServoCluster(pio0, 0, servo2040::SERVO_1, servo2040::NUM_SERVOS);
+// Shared hardware control objects pool
+ServoCluster servos(pio0, 0, servo2040::SERVO_1, servo2040::NUM_SERVOS);
 WS2812 leds(servo2040::NUM_LEDS, pio1, 0, servo2040::LED_DATA);
-Relay relay(RELAY_PIN);
+PowerTrace power(AUTO_DISCONNECT_PIN);
 AnalogReader reader;
 
 servos.init();
@@ -172,19 +477,28 @@ leds.start();
 
 Each command will take a reference to the object(s) it needs to work with. Commands that need, for example, to read from a sensor (internal or external), will have a reference to the `AnalogReader`, a utility class that encapsulates the logic for multiplexing and reading; the same way, commands that need to work with servos will take a reference to a unique `ServoCluster` object. This limits potential interference between commands and redundancy.
 
+We create a `Dispatcher`, some `Command` objects and register them on the dispatcher:
+
 ```cpp
 // Initialize the dispatcher
-CommandDispatcher dispatcher;
+Dispatcher dispatcher;
 
-// Register the commands
-dispatcher.registerCommand(0x01, std::make_unique<GetVoltageCommand>(reader));
+// Create commands assigning the hardware resources they need to handle
+AttachServosCommand attachServosCommand(&servos);
+...
+ReadSensorCommand readSensorCommand(&reader);
+
+// Register commands
+dispatcher.registerCommand(ATTACH_SERVOS_COMMAND, &attachServosCommand);
+...
+dispatcher.registerCommand(READ_SENSOR_COMMAND, &readSensorCommand);
 ```
 
-Upon receipt of a message, the `dispatcher` handles it. The first byte, the opcode, is used to lookup and dispatch the corresponding command. If the opcode matches a registered command, the `dispatcher` executes the command with the remainig bytes in the message as arguments. The response from the command is then sent back to the controlling machine over the serial connection.
+Upon receipt of a frame, the `dispatcher` extracts the information from its payload. The first byte is the length of the rest of the payload (`opcode` + `data`). The `opcode` is used to lookup for a command among the registered ones; if a match is found, the `dispatcher` executes it with the remainig bytes in the frame (`data`) as arguments. The result is then sent back to the controlling machine as a new frame.
 
 ### Adding a new command
 
-As an example we can add a command that toggles the status of a variable. It will need no arguments and return a single byte each time, `0x00`. 
+As an example we can add a command that simply toggles the status of a variable. It will need no argument and return the state of the variable each time it changes.
 
 Create a new header file named `toggle_status_command.hpp` in the commands directory. Implement the class as follows:
 
@@ -202,50 +516,59 @@ private:
 
 public:
 
+    // No hardwrae lirbary
     ToggleStatusCommand() : status(false) {}
 
-    void execute(const std::vector<uint8_t>& args) override {
-        status = !status;
-    }
+    bool execute(const uint8_t* args, uint8_t args_len, 
+                uint8_t* response, uint8_t* response_len) override {
+        
+        // We expect no input
+        (void) args;
+        (void) args_len;
 
-    std::vector<uint8_t> getResponse() override {
-        return {0x00};
+        // Perform the action
+        status = !status;
+
+        // Build response
+        *response_len = 1;
+        response[0] = status;
+        
+        return true;
     }
 };
 
 #endif // TOGGLE_STATUS_COMMAND_HPP
 ```
 
-To be a valid command, the new class must extend the `Command` base class and implement the `execute()` and `getResponse()` methods. The `execute()` method contains the logic for toggling the status variable, and the `getResponse()` method returns a success response.
+To be a valid command, the new class must extend the `Command` base class and implement the `execute(...)` method.
 
-Next, include the new command in your main program and register it with the dispatcher using an available opcode. Here’s how to do it:
+Next, include the new command in your main script and register it on the dispatcher using a new opcode. Here’s how to do it:
 
 ```cpp
-// Other includes
 #include "commands/toggle_status_command.hpp"
 
 // ...
 
 int main() {
 
-    // ...
+  // ...
 
-    // Initialize the dispatcher
-    CommandDispatcher dispatcher;
+  // Initialize the dispatcher
+  Dispatcher dispatcher;
 
-    // Register the commands
-    dispatcher.registerCommand(0x01, std::make_unique<GetVoltageCommand>(reader));
-    dispatcher.registerCommand(0x02, std::make_unique<GetCurrentCommand>(reader));
-    // ...
+  // Create the commands
+  // ...
+  ToggleStatusCommand toggleStatusCommand();
 
-    // Register the new Toggle Status command
-    dispatcher.registerCommand(0x08, std::make_unique<ToggleStatusCommand>());
+  // Register the commands
+  // ...
+  dispatcher.registerCommand(0x1F, &toggleStatusCommand);  // 0x1F is a random free opcode
 
-    // ... (rest of the main function)
+  // ...
 }
 ```
 
-I used opcode `0x0E` as it's the first available. Once registered, the dispatcher will automatically invoke the new `ToggleStatusCommand` when the opcode `0x0E` is received as first byte over the serial connection. The following bytes are treated as arguments and interpreted.
+Once registered, the dispatcher will automatically invoke the new `ToggleStatusCommand` when the opcode `0x1F` is received. The following bytes are treated as arguments and interpreted.
 
 ## 🤝 Contribution
 

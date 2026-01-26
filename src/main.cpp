@@ -1,146 +1,161 @@
-#include <stdio.h>
-#include "servo2040.hpp"
 #include "pico/stdlib.h"
 #include "hardware/uart.h"
+#include "hardware/gpio.h"
 
-#include "dispatcher.hpp"
-
-#include "commands/attach_servos_command.hpp"
-#include "commands/detach_servos_command.hpp"
-#include "commands/get_current_command.hpp"
-#include "commands/get_voltage_command.hpp"
-#include "commands/read_sensor_command.hpp"
-#include "commands/set_led_command.hpp"
-#include "commands/set_leds_command.hpp"
-#include "commands/set_servo_pulse_command.hpp"
-#include "commands/set_servo_pulses_command.hpp"
-#include "commands/set_servo_angle_command.hpp"
-#include "commands/set_servo_angles_command.hpp"
-#include "commands/connect_relay_command.hpp"
-#include "commands/disconnect_relay_command.hpp"
-
-#include "utils/analog_reader.hpp"
-#include "utils/relay.hpp"
-
+#include "hardware/reader.hpp"
+#include "hardware/power.hpp"
+#include "HDLC/protocol.hpp"
 #include "config.hpp"
+
+#include "control/command.hpp"
+#include "control/dispatcher.hpp"
+#include "control/commands/attach_servos.hpp"
+#include "control/commands/detach_servos.hpp"
+#include "control/commands/get_voltage.hpp"
+#include "control/commands/get_current.hpp"
+#include "control/commands/connect_power.hpp"
+#include "control/commands/disconnect_power.hpp"
+#include "control/commands/set_servo_angle.hpp"
+#include "control/commands/get_servo_angle.hpp"
+#include "control/commands/set_servo_angles.hpp"
+#include "control/commands/get_servo_angles.hpp"
+#include "control/commands/set_servo_pulse.hpp"
+#include "control/commands/get_servo_pulse.hpp"
+#include "control/commands/set_servo_pulses.hpp"
+#include "control/commands/get_servo_pulses.hpp"
+#include "control/commands/set_led.hpp"
+#include "control/commands/get_led.hpp"
+#include "control/commands/set_leds.hpp"
+#include "control/commands/get_leds.hpp"
+#include "control/commands/read_sensor.hpp"
 
 using namespace plasma;
 using namespace servo;
 
 
-int main() {
+class CommandProtocol : public Protocol {
 
+private:
+    static const size_t MAX_RESPONSE_SIZE = 64;
+    Dispatcher* _dispatcher;
+
+public:
+    explicit CommandProtocol(uart_inst_t* uart, Dispatcher* dispatcher)
+        : Protocol(uart), _dispatcher(dispatcher) {}
+
+protected:
+    void onFrame(
+        uint8_t opcode,
+        const uint8_t* data,
+        uint8_t data_len
+    ) override {
+
+        uint8_t response_len = 0;
+        uint8_t response_buffer[MAX_RESPONSE_SIZE];
+        bool status = _dispatcher->dispatch(opcode, data, data_len,
+                                        response_buffer, &response_len);
+
+        if (status) {
+            // Command executed successfully
+            sendFrame(opcode, response_buffer, response_len);
+        } else {
+            // Send error response frame
+            uint8_t error_code = 0xFF;
+            sendFrame(0xFF, &error_code, 1);
+        }
+    }
+};
+
+int main() {
+    
+    // Initialize stdio (optional, for debugging)
     stdio_init_all();
 
-    // Initialize the UART
+    // Initialize UART
     uart_init(UART_ID, BAUD_RATE);
-    gpio_set_function(UART_TX, UART_FUNCSEL_NUM(UART_ID, UART_TX));
-    gpio_set_function(UART_RX, UART_FUNCSEL_NUM(UART_ID, UART_RX));
+    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
 
-    // Initialize the relay pins
-    gpio_init(RELAY_PIN);
-    gpio_set_dir(RELAY_PIN, GPIO_OUT);
+    // Optional UART configuration
+    uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
+    uart_set_fifo_enabled(UART_ID, true);
 
-    // Shared object pool
-    ServoCluster servos = ServoCluster(pio0, 0, servo2040::SERVO_1, servo2040::NUM_SERVOS);
+    // Shared hardware control objects pool
+    ServoCluster servos(pio0, 0, servo2040::SERVO_1, servo2040::NUM_SERVOS);
     WS2812 leds(servo2040::NUM_LEDS, pio1, 0, servo2040::LED_DATA);
-    Relay relay(RELAY_PIN);
+    PowerTrace power(AUTO_DISCONNECT_PIN);
     AnalogReader reader;
 
     servos.init();
     leds.start();
 
-    // Initialize the dispatcher
-    CommandDispatcher dispatcher;
+    // Create commands assigning the hardware resources they need to handle
+    AttachServosCommand attachServosCommand(&servos);
+    DetachServosCommand detachServosCommand(&servos);
+    GetVoltageCommand getVoltageCommand(&reader);
+    GetCurrentCommand getCurrentCommand(&reader);
+    ConnectPowerCommand connectPowerCommand(&power);
+    DisconnectPowerCommand disconnectPowerCommand(&power);
+    SetServoAngleCommand setServoAngleCommand(&servos);
+    GetServoAngleCommand getServoAngleCommand(&servos);
+    SetServoAnglesCommand setServoAnglesCommand(&servos);
+    GetServoAnglesCommand getServoAnglesCommand(&servos);
+    SetServoPulseCommand setServoPulseCommand(&servos);
+    GetServoPulseCommand getServoPulseCommand(&servos);
+    SetServoPulsesCommand setServoPulsesCommand(&servos);
+    GetServoPulsesCommand getServoPulsesCommand(&servos);
+    SetLEDCommand setLEDCommand(&leds);
+    GetLEDCommand getLEDCommand(&leds);
+    SetLEDsCommand setLEDsCommand(&leds);
+    GetLEDsCommand getLEDsCommand(&leds);
+    ReadSensorCommand readSensorCommand(&reader);
 
-    // Register the commands
-    dispatcher.registerCommand(GET_VOLTAGE_COMMAND, std::make_unique<GetVoltageCommand>(reader));
-    dispatcher.registerCommand(GET_CURRENT_COMMAND, std::make_unique<GetCurrentCommand>(reader));
-    dispatcher.registerCommand(READ_SENSOR_COMMAND, std::make_unique<ReadSensorCommand>(reader));
-    dispatcher.registerCommand(SET_LED_COMMAND, std::make_unique<SetLEDCommand>(leds));
-    dispatcher.registerCommand(SET_LEDS_COMMAND, std::make_unique<SetLEDsCommand>(leds));
-    dispatcher.registerCommand(ATTACH_SERVOS_COMMAND, std::make_unique<AttachServosCommand>(servos));
-    dispatcher.registerCommand(DETACH_SERVOS_COMMAND, std::make_unique<DetachServosCommand>(servos));
-    dispatcher.registerCommand(SET_SERVO_PULSE_COMMAND, std::make_unique<SetServoPulseCommand>(servos));
-    dispatcher.registerCommand(SET_SERVO_PULSES_COMMAND, std::make_unique<SetServoPulsesCommand>(servos));
-    dispatcher.registerCommand(SET_SERVO_ANGLE_COMMAND, std::make_unique<SetServoAngleCommand>(servos));
-    dispatcher.registerCommand(SET_SERVO_ANGLES_COMMAND, std::make_unique<SetServoAnglesCommand>(servos));
-    dispatcher.registerCommand(CONNECT_RELAY_COMMAND, std::make_unique<ConnectRelayCommand>(relay));
-    dispatcher.registerCommand(DISCONNECT_RELAY_COMMAND, std::make_unique<DisconnectRelayCommand>(relay));
+    // Register commands that will be dispatched on frame reception
+    Dispatcher dispatcher;
+    dispatcher.registerCommand(ATTACH_SERVOS_COMMAND, &attachServosCommand);
+    dispatcher.registerCommand(DETACH_SERVOS_COMMAND, &detachServosCommand);
+    dispatcher.registerCommand(GET_VOLTAGE_COMMAND, &getVoltageCommand);
+    dispatcher.registerCommand(GET_CURRENT_COMMAND, &getCurrentCommand);
+    dispatcher.registerCommand(CONNECT_POWER_COMMAND, &connectPowerCommand);
+    dispatcher.registerCommand(DISCONNECT_POWER_COMMAND, &disconnectPowerCommand);
+    dispatcher.registerCommand(SET_SERVO_ANGLE_COMMAND, &setServoAngleCommand);
+    dispatcher.registerCommand(GET_SERVO_ANGLE_COMMAND, &getServoAngleCommand);
+    dispatcher.registerCommand(SET_SERVO_ANGLES_COMMAND, &setServoAnglesCommand);
+    dispatcher.registerCommand(GET_SERVO_ANGLES_COMMAND, &getServoAnglesCommand);
+    dispatcher.registerCommand(SET_SERVO_PULSE_COMMAND, &setServoPulseCommand);
+    dispatcher.registerCommand(GET_SERVO_PULSE_COMMAND, &getServoPulseCommand);
+    dispatcher.registerCommand(SET_SERVO_PULSES_COMMAND, &setServoPulsesCommand);
+    dispatcher.registerCommand(GET_SERVO_PULSES_COMMAND, &getServoPulsesCommand);
+    dispatcher.registerCommand(SET_LED_COMMAND, &setLEDCommand);
+    dispatcher.registerCommand(GET_LED_COMMAND, &getLEDCommand);
+    dispatcher.registerCommand(SET_LEDS_COMMAND, &setLEDsCommand);
+    dispatcher.registerCommand(GET_LEDS_COMMAND, &getLEDsCommand);
+    dispatcher.registerCommand(READ_SENSOR_COMMAND, &readSensorCommand);
 
     // Display an animation with the LEDs to signal that the robot is ready
+    uint8_t response[1];  // we know the SET_LED_COMMAND will have response_len = 1
+    uint8_t response_len;
     for (uint8_t i = 0; i < servo2040::NUM_LEDS; ++i) {
-        dispatcher.dispatch(SET_LED_COMMAND, {i, 208, 107, 51});    // This is a cool shade of orange
-        sleep_ms(50);                                               // wait for 0.5 seconds
-        dispatcher.dispatch(SET_LED_COMMAND, {i, 0, 0, 0});
+        uint8_t led_data[] = {i, 208, 107, 51};  // LED index and RGB values
+        dispatcher.dispatch(SET_LED_COMMAND, led_data, 4, response, &response_len);
+        sleep_ms(50);
+        
+        uint8_t led_off[] = {i, 0, 0, 0};
+        dispatcher.dispatch(SET_LED_COMMAND, led_off, 4, response, &response_len);
     }
 
-    std::vector<uint8_t> response;
-    std::vector<uint8_t> buffer;
-
+    // Create protocol instance
+    CommandProtocol proto(UART_ID, &dispatcher);
+    
+    // Main loop
     while (true) {
-
+        // Poll UART RX
         while (uart_is_readable(UART_ID)) {
-
             uint8_t byte = uart_getc(UART_ID);
-
-            switch(byte) {
-
-                case COMMAND_START:
-
-                    buffer.clear();
-                    response.clear();
-                    break;
-
-                case COMMAND_END:
-
-                    // Process the command if data is available
-                    if (!buffer.empty()) {
-                        uint8_t opCode = buffer[0];
-                        std::vector<uint8_t> args(buffer.begin() + 1, buffer.end());
-
-			/*
-                        // Display the opcode on the LEDs
-                        for (uint8_t i = 0; i < servo2040::NUM_LEDS; ++i) {
-                            bool isOn = opCode & (1 << i); // Check if the i-th bit is 1
-                            if (isOn)
-                                dispatcher.dispatch(SET_LED_COMMAND, {i, 208, 107, 51});   // Same cool shade of orange
-                            else
-                                dispatcher.dispatch(SET_LED_COMMAND, {i, 0, 0, 0});
-                        }
-			*/
-
-                        // Dispatch the command and get the response
-                        response = dispatcher.dispatch(opCode, args);
-
-                        // Send the response back over UART
-                        uart_putc(UART_ID, COMMAND_START);
-                        for (uint8_t byte : response) {
-                            uart_putc(UART_ID, byte);
-                        }
-                        uart_putc(UART_ID, COMMAND_END);
-                    }
-
-                default:
-
-                    buffer.push_back(byte);
-                    break;
-            }
+            proto.onByte(byte);
         }
 
-        /*
-        #ifdef AUTO_DISCONNECT_UPON_CURRENT_LIMIT
-
-        std::vector<uint8_t> current_bytes = dispatcher.dispatch(GET_CURRENT_COMMAND);
-        float current = vec2float(current_bytes);
-        if (current > CURRENT_THRESHOLD) {
-            dispatcher.dispatch(DISCONNECT_RELAY_COMMAND);
-        }
-
-        #endif
-        */
-
+        // Optional: small sleep to reduce power / CPU usage
+        tight_loop_contents();
     }
-
-    return 0;
 }

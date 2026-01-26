@@ -5,7 +5,6 @@ set(NAME Hexapod)
 include(pico_sdk_import.cmake)
 include(pimoroni_pico_import.cmake)
 
-# Gooey boilerplate
 project(${NAME} C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
@@ -13,25 +12,25 @@ set(CMAKE_CXX_STANDARD 17)
 # Initialize the SDK
 pico_sdk_init()
 
+# Define the include directories
+include_directories(src src/hardware src/HDLC src/control)
+
 # Define the source files
 set(SOURCES
     src/main.cpp
 )
 
-# Define the include directories
-include_directories(src src/commands)
-
 # Add your source files
 add_executable(${NAME} ${SOURCES})
 
 # Include required libraries
-# This assumes pimoroni-pico is stored alongside your project
+# This assumes pimoroni-pico is stored alongside the project
 include(libraries/servo2040/servo2040)
 include(drivers/analogmux/analogmux)
 include(drivers/button/button)
 include(drivers/analog/analog)
 
-# Don't forget to link the libraries you need!
+# Link the libraries
 target_link_libraries(${NAME}
     hardware_uart
     pico_stdlib
