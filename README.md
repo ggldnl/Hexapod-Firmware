@@ -516,7 +516,7 @@ private:
 
 public:
 
-    // No hardwrae lirbary
+    // No hardware lirbary
     ToggleStatusCommand() : status(false) {}
 
     bool execute(const uint8_t* args, uint8_t args_len, 
