@@ -38,9 +38,6 @@ public:
     // Dispatch a command from opcode, data, data_len
     bool dispatch(uint8_t opcode, const uint8_t* data, uint8_t data_len,
                 uint8_t* response, uint8_t* response_len) {
-    
-        if (data_len < 1)
-            return false;
 
         // Find and execute the command
         for (size_t i = 0; i < command_count; i++) {
