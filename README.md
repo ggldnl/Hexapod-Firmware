@@ -95,29 +95,16 @@ If you built the firmware on the Raspberry Pi that you will use for the Hexapod 
 
 Connect the Servo2040 board to the raspberry pi as follows:
 
-<!-- Table is small, this way it fits the whole page -->
-<table style="width:100%; border-collapse: collapse;">
-  <tr>
-    <th>Raspberry</th>
-    <th>Servo2040</th>
-  </tr>
-  <tr>
-    <td>5V</td>
-    <td>5V</td>
-  </tr>
-  <tr>
-    <td>GND</td>
-    <td>GND</td>
-  </tr>
-  <tr>
-    <td>GPIO14 (TXD)</td>
-    <td>SDA (RX)</td>
-  </tr>
-  <tr>
-    <td>GPIO15 (RXD)</td>
-    <td>SCL (TX)</td>
-  </tr>
-</table>
+<div align="center">
+
+| Raspberry    | Servo2040 |
+|--------------|-----------|
+| 5V           | 5V        |
+| GND          | GND       |
+| GPIO14 (TXD) | SDA (RX)  |
+| GPIO15 (RXD) | SCL (TX)  |
+
+</div>
 
 Remember to enable hardware uart: 
 - `sudo raspi-config` > `Interface Options` > `Serial Port`
@@ -137,63 +124,26 @@ HDLC is a communication protocol used for transmitting data between devices reli
 
 It works by sending frames like this:
 
-<table style="width:100%; border-collapse: collapse;">
-  <tr>
-    <th>SOF</th>
-    <th>LEN</th>
-    <th>OPCODE</th>
-    <th>DATA</th>
-    <th>CRC</th>
-    <th>EOF</th>
-  </tr>
-  <tr>
-    <td>1B</td>
-    <td>1B</td>
-    <td>1B</td>
-    <td>N bytes</td>
-    <td>2B</td>
-    <td>1B</td>
-  </tr>
-</table>
+<div align="center">
 
-<!-- Table is small, this way it fits the whole page -->
-<table style="width:100%; border-collapse: collapse;">
-  <tr>
-    <th>Field</th>
-    <th>Size (bytes)</th>
-    <th>Description</th>
-  </tr>
-<tr>
-    <td>SOF</td>
-    <td>1</td>
-    <td>Start-of-frame marker (`0xAA`)</td>
-  </tr>
-  <tr>
-    <td>LEN</td>
-    <td>1</td>
-    <td>Length of `OPCODE + DATA`</td>
-  </tr>
-  <tr>
-    <td>OPCODE</td>
-    <td>1</td>
-    <td>Command identifier</td>
-  </tr>
-  <tr>
-    <td>DATA</td>
-    <td>N</td>
-    <td>Arguments (binary)</td>
-  </tr>
-  <tr>
-    <td>CRC</td>
-    <td>2</td>
-    <td>CRC-16 over `LEN + OPCODE + DATA`</td>
-  </tr>
-  <tr>
-    <td>EOF</td>
-    <td>1</td>
-    <td>End-of-frame marker (`0x55`)</td>
-  </tr>
-</table>
+| SOF | LEN | OPCODE | DATA    | CRC | EOF |
+|-----|-----|--------|---------|-----|-----|
+| 1B  | 1B  | 1B     | nB      | 2B  | 1B  |
+
+</div>
+
+<div align="center">
+
+| Field  | Size (bytes) | Description                       |
+|--------|--------------|-----------------------------------|
+| SOF    | 1            | Start-of-frame marker (`0xAA`)    |
+| LEN    | 1            | Length of `OPCODE + DATA`         |
+| OPCODE | 1            | Command identifier                |
+| DATA   | n            | Arguments (binary)                |
+| CRC    | 2            | CRC-16 over `LEN + OPCODE + DATA` |
+| EOF    | 1            | End-of-frame marker (`0x55`)      |
+
+</div>
 
 CRC-16 is a 16-bit cyclic redundancy check used to detect errors in transmitted frames. When a receiver gets a frame, it recomputes the CRC-16 and compares it to the received FCS. If they differ, the frame is considered corrupted.
 
@@ -203,262 +153,61 @@ I used the Command design pattern to dispatch commands once extracted from a mes
 
 The following table describes the supported operations, their opcodes, the expected arguments, and the response:
 
-<table style="width:100%; border-collapse:collapse;">
-  <tr>
-    <th style="text-align:left;">Operation</th>
-    <th style="text-align:left;">OpCode</th>
-    <th style="text-align:left;">Arguments</th>
-    <th style="text-align:left;">Response</th>
-  </tr>
-  <tr>
-    <td>Get Voltage</td>
-    <td><code>0x01</code></td>
-    <td>None</td>
-    <td>voltage(4b)</td>
-  </tr>
+<div align="center">
 
-  <tr>
-    <td>Get Current</td>
-    <td><code>0x02</code></td>
-    <td>None</td>
-    <td>current(4b)</td>
-  </tr>
+| Operation | OpCode | Arguments | Response |
+|-----------|--------|-----------|----------|
+| Get Voltage | `0x01` | None | voltage(4b) |
+| Get Current | `0x02` | None | current(4b) |
+| Read Sensor | `0x03` | pin (1b) | value(4b) |
+| Set LED | `0x04` | pin(1b), r(1b), g(1b), b(1b) | status(1b) |
+| Set LEDs | `0x05` | count(1b), [pin(1b), r(1b), g(1b), b(1b)] × count | status(1b) |
+| Get LED | `0x06` | pin (1b) | r(1b), g(1b), b(1b) |
+| Get LEDs | `0x07` | count(1b), [pin(1b)] × count | [r(1b), g(1b), b(1b)] × count |
+| Attach Servos | `0x08` | None | status(1b) |
+| Detach Servos | `0x09` | None | status(1b) |
+| Set Servo Pulse Width | `0x0A` | pin(1b), pulse_width(4b) | status(1b) |
+| Set Servo Pulse Widths | `0x0B` | count(1b), [pin(1b), pulse_width(4b)] × count | status(1b) |
+| Set Servo Angle | `0x0C` | pin(1b), angle(4b) | status(1b) |
+| Set Servo Angles | `0x0D` | count(1b), [pin(1b), angle(4b)] × count | status(1b) |
+| Get Servo Pulse Width | `0x0E` | pin (1b) | pulse_width(4b) |
+| Get Servo Pulse Widths | `0x0F` | count(1b), [pin(1b)] × count | pulse_width(4b) × count |
+| Get Servo Angle | `0x10` | pin(1b) | angle(4b) |
+| Get Servo Angles | `0x11` | count(1b), [pin(1b)] × count | angle(4b) × count |
+| Connect Power | `0x12` | None | status(1b) |
+| Disconnect Power | `0x13` | None | status(1b) |
 
-  <tr>
-    <td>Read Sensor</td>
-    <td><code>0x03</code></td>
-    <td>pin (1b)</td>
-    <td>value(4b)</td>
-  </tr>
-
-  <tr>
-    <td>Set LED</td>
-    <td><code>0x04</code></td>
-    <td>pin(1b), r(1b), g(1b), b(1b)</td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Set LEDs</td>
-    <td><code>0x05</code></td>
-    <td>
-      count(1b),<br>
-      [pin(1b), r(1b), g(1b), b(1b)] × count
-    </td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Get LED</td>
-    <td><code>0x06</code></td>
-    <td>pin (1b)</td>
-    <td>r(1b), g(1b), b(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Get LEDs</td>
-    <td><code>0x07</code></td>
-    <td>count(1b), [pin(1b)] × count</td>
-    <td>[r(1b), g(1b), b(1b)] × count</td>
-  </tr>
-
-  <tr>
-    <td>Attach Servos</td>
-    <td><code>0x08</code></td>
-    <td>None</td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Detach Servos</td>
-    <td><code>0x09</code></td>
-    <td>None</td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Pulse Width</td>
-    <td><code>0x0A</code></td>
-    <td>pin(1b), pulse_width(4b)</td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Pulse Widths</td>
-    <td><code>0x0B</code></td>
-    <td>
-      count(1b),<br>
-      [pin(1b), pulse_width(4b)] × count
-    </td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Angle</td>
-    <td><code>0x0C</code></td>
-    <td>pin(1b), angle(4b)</td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Angles</td>
-    <td><code>0x0D</code></td>
-    <td>
-      count(1b),<br>
-      [pin(1b), angle(4b)] × count
-    </td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Pulse Width</td>
-    <td><code>0x0E</code></td>
-    <td>pin (1b)</td>
-    <td>pulse_width(4b)</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Pulse Widths</td>
-    <td><code>0x0F</code></td>
-    <td>count(1b), [pin(1b)] × count</td>
-    <td>pulse_width(4b) × count</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Angle</td>
-    <td><code>0x10</code></td>
-    <td>pin(1b)</td>
-    <td>angle(4b)</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Angles</td>
-    <td><code>0x11</code></td>
-    <td>count(1b), [pin(1b)] × count</td>
-    <td>angle(4b) × count</td>
-  </tr>
-
-  <tr>
-    <td>Connect Power</td>
-    <td><code>0x12</code></td>
-    <td>None</td>
-    <td>status(1b)</td>
-  </tr>
-
-  <tr>
-    <td>Disconnect Power</td>
-    <td><code>0x13</code></td>
-    <td>None</td>
-    <td>status(1b)</td>
-  </tr>
-</table>
+</div>
 
 The response is always guaranteed. For commands that return data (e.g. `get_voltage`), a successful execution returns the actual requested data, while a failure returns all bytes set to `0x00`. For commands that perform actions (e.g. `set_led`), a successful execution returns `0x01`, while a failure returns `0x00`. The length of arguments and responses are expressed in bytes (e.g. 4b means 4 bytes i.e. a float).
 
 Description table:
 
-<table style="width:100%; border-collapse:collapse;">
-  <tr>
-    <th style="text-align:left;">Operation</th>
-    <th style="text-align:left;">Description</th>
-  </tr>
+<div align="center">
 
-  <tr>
-    <td>Get Voltage</td>
-    <td>Reads the voltage present on the external power line.</td>
-  </tr>
+| Operation | Description |
+|-----------|-------------|
+| Get Voltage | Reads the voltage present on the external power line. |
+| Get Current | Reads the current flowing through the external power line. |
+| Read Sensor | Reads the analog value of the specified input pin. |
+| Set LED | Sets the RGB color of a single LED connected to the specified pin. |
+| Set LEDs | Sets the RGB color of multiple LEDs in a single command. |
+| Get LED | Reads the current RGB color of the specified LED. |
+| Get LEDs | Reads the current RGB color of multiple LEDs. |
+| Attach Servos | Initializes and attaches all configured servo outputs. |
+| Detach Servos | Detaches all servo outputs and disables signal generation. |
+| Set Servo Pulse Width | Sets the pulse width for a single servo. |
+| Set Servo Pulse Widths | Sets the pulse width for multiple servos. |
+| Set Servo Angle | Sets the target angle for a single servo. |
+| Set Servo Angles | Sets the target angle for multiple servos. |
+| Get Servo Pulse Width | Reads the current pulse width of the specified servo. |
+| Get Servo Pulse Widths | Reads the current pulse width of multiple servos. |
+| Get Servo Angle | Reads the current angle of the specified servo. |
+| Get Servo Angles | Reads the current angle of multiple servos. |
+| Connect Power | Enables external power delivery to the servos. |
+| Disconnect Power | Disables external power delivery to the servos. |
 
-  <tr>
-    <td>Get Current</td>
-    <td>Reads the current flowing through the external power line.</td>
-  </tr>
-
-  <tr>
-    <td>Read Sensor</td>
-    <td>Reads the analog value of the specified input pin.</td>
-  </tr>
-
-  <tr>
-    <td>Set LED</td>
-    <td>Sets the RGB color of a single LED connected to the specified pin.</td>
-  </tr>
-
-  <tr>
-    <td>Set LEDs</td>
-    <td>Sets the RGB color of multiple LEDs in a single command.</td>
-  </tr>
-
-  <tr>
-    <td>Get LED</td>
-    <td>Reads the current RGB color of the specified LED.</td>
-  </tr>
-
-  <tr>
-    <td>Get LEDs</td>
-    <td>Reads the current RGB color of multiple LEDs.</td>
-  </tr>
-
-  <tr>
-    <td>Attach Servos</td>
-    <td>Initializes and attaches all configured servo outputs.</td>
-  </tr>
-
-  <tr>
-    <td>Detach Servos</td>
-    <td>Detaches all servo outputs and disables signal generation.</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Pulse Width</td>
-    <td>Sets the pulse width for a single servo.</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Pulse Widths</td>
-    <td>Sets the pulse width for multiple servos.</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Angle</td>
-    <td>Sets the target angle for a single servo.</td>
-  </tr>
-
-  <tr>
-    <td>Set Servo Angles</td>
-    <td>Sets the target angle for multiple servos.</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Pulse Width</td>
-    <td>Reads the current pulse width of the specified servo.</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Pulse Widths</td>
-    <td>Reads the current pulse width of multiple servos.</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Angle</td>
-    <td>Reads the current angle of the specified servo.</td>
-  </tr>
-
-  <tr>
-    <td>Get Servo Angles</td>
-    <td>Reads the current angle of multiple servos.</td>
-  </tr>
-
-  <tr>
-    <td>Connect Power</td>
-    <td>Enables external power delivery to the servos.</td>
-  </tr>
-
-  <tr>
-    <td>Disconnect Power</td>
-    <td>Disables external power delivery to the servos.</td>
-  </tr>
-</table>
-
+</div>
 
 ### Implementation details
 
