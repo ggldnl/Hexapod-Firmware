@@ -30,6 +30,12 @@ public:
 
         *response_len = 1;
 
+        // Need at least 1 byte for count
+        if (args_len < 1) {
+            response[0] = 0x00;
+            return false;
+        }
+
         // Extract number of servos
         uint8_t num_servos = args[0];
         
@@ -47,15 +53,15 @@ public:
             uint8_t servo_id = args[offset];
             offset += 1;
 
-            float angle;
-            memcpy(&angle, &args[offset], sizeof(float));
-            offset += sizeof(float);
-
             // Ensure servo id is within valid range
             if (servo_id >= servo2040::NUM_SERVOS) {
                 response[0] = 0x00;
                 return false;
             }
+
+            float angle;
+            memcpy(&angle, &args[offset], sizeof(float));
+            offset += sizeof(float);
 
             servos->value(servo_id, angle);
         }
