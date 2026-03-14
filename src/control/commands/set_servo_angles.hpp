@@ -63,9 +63,10 @@ public:
             memcpy(&angle, &args[offset], sizeof(float));
             offset += sizeof(float);
 
-            servos->value(servo_id, angle);
+            servos->value(servo_id, angle, false);
         }
-                
+        
+        servos->load();
         response[0] = 0x01;
 
         return true;
