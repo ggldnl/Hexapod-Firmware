@@ -7,7 +7,13 @@
 
 static constexpr uint8_t SOF = 0xAA;
 static constexpr uint8_t EOF_ = 0x55;
-static constexpr uint8_t MAX_PAYLOAD = 64;
+
+/*
+ * Needs to fit the largest possible command.
+ * set_servo_angles with N servos: 1 (opcode) + 1 (count) + N*5 bytes
+ * For 18 servos: 92 bytes. Use 128 to be safe.
+*/
+static constexpr uint8_t MAX_PAYLOAD = 128;
 
 static uint16_t crc16Update(uint16_t crc, uint8_t data) {
     crc ^= uint16_t(data) << 8;
