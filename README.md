@@ -1,16 +1,43 @@
 # Hexapod Firmware
 
-This repository contains the firmware for the Servo2040 board.
+This repository contains the firmware for the Servo2040 board that drives the hexapod.
 
-For a complete overview of the project refer to the [main Hexapod repository](https://github.com/ggldnl/Hexapod.git). Take also a look to the [repository containing the Controller's code](https://github.com/ggldnl/Hexapod-Controller.git). 
+The Servo2040 runs the whole control loop: finite-state machine (stand/walk/sit), gait generator and inverse kinematics. The Pi only streams high-level setpoints (a velocity, a gait, a body pose) and reads telemetry back.
 
-Below, you will find instructions on how to build and deploy the code and info on how the communication protocol between the two boards works.
+For a complete overview of the project refer to the [main Hexapod repository](https://github.com/ggldnl/Hexapod.git). See also the [Controller](https://github.com/ggldnl/Hexapod-Controller.git) (the Pi-side `hexapod` client that talks to this board) and the [Simulation](https://github.com/ggldnl/Hexapod-Simulation.git) (which runs this exact firmware on the host).
+
+Below you will find how to build and deploy the code, and how the communication protocol between the two boards works.
+
+## 🗂️ Repository layout
+
+Everything is header-only C++17 and rooted at `src/`, so every include shows its folder (e.g. `#include "core/robot.hpp"`).
+
+```
+src/
+  main.cpp                    # entry point: drain UART -> dispatch -> execute
+  core/
+    config.hpp                # geometry, gaits, pins, limits (baked defaults + provisionable overrides)
+    robot.hpp                 # the state machine and the robot's intent API (enable/walk/pose ...)
+    gait.hpp                  # foot-trajectory generator (constant-cadence, velocity-scaled stride)
+    kinematics.hpp            # per-leg forward/inverse kinematics
+    router.hpp                # turns decoded frames into a call on the robot, builds the reply
+  communication/
+    protocol.hpp              # wire protocol: opcodes, payload structs, framing (CRC + parser)
+    hardware.hpp              # abstract hardware interface the robot drives (so the core is testable)
+    servo2040_hal.hpp         # the only file that touches the Pimoroni SDK (servos, LEDs, power, ADC)
+  utils/
+    math.hpp                  # small geometry helpers (Vec3, deg/rad, clamp, angle wrap)
+test/                         # host-side tests, pure C++ (no board, no SDK) -> ./test/run.sh
+protocol_test.py              # serial test (pyserial only)
+```
+
+Everything under `core/` (plus `communication/protocol.hpp` and `utils/`) is SDK-free and compiles on your PC against a fake hardware interface, which is what the host tests exercise. Only `servo2040_hal.hpp` pulls in the Pico SDK/Pimoroni libraries.
 
 ## 🛠️ Build and deployment
 
-Before you start, take a look at this [template](https://github.com/pimoroni/pico-boilerplate?tab=readme-ov-file#before-you-start). This served as starting point to develop the firmware.
+Before you start, take a look at this [template](https://github.com/pimoroni/pico-boilerplate?tab=readme-ov-file#before-you-start). This served as the starting point for the firmware.
 
-It's easier if you make a `pico` directory or similar in which you keep the SDK, Pimoroni Libraries and this repo. This makes it easier to include libraries. At the end you will have this directory structure:
+It's easiest to make a `pico` directory that holds the SDK, the Pimoroni libraries and this repo side by side, so the build can find them:
 
 ```
 pico
@@ -19,20 +46,20 @@ pico
 └── pimoroni-pico
 ```
 
-Feel free to use another name for the `pico` directory, I'll use this out of simplicity. 
+Feel free to use another name for the `pico` directory; I'll use this out of simplicity.
 
 ### Prepare the build environment
 
-Install build requirements:
+Install the build requirements:
 
 ```bash
 sudo apt update
 sudo apt install cmake gcc-arm-none-eabi build-essential
 ```
 
-### Download the pico SDK
+### Download the Pico SDK
 
-Download the pico SDK in the `pico` directory:
+Download the Pico SDK into the `pico` directory:
 
 ```bash
 cd pico
@@ -43,7 +70,7 @@ export PICO_SDK_PATH=`pwd`
 cd ../
 ```
 
-The `PICO_SDK_PATH` set above will only last the duration of your session. To make it persistant you can add it to your `.bashrc`.
+`PICO_SDK_PATH` set this way lasts only for the session. To make it persistent, add it to your `.bashrc`:
 
 ```bash
 echo 'export PICO_SDK_PATH="/path/to/pico-sdk"' >> ~/.bashrc
@@ -51,7 +78,7 @@ echo 'export PICO_SDK_PATH="/path/to/pico-sdk"' >> ~/.bashrc
 
 ### Download the Pimoroni libraries
 
-Download the Pimoroni libraries in the `pico` directory:
+Download the Pimoroni libraries into the `pico` directory:
 
 ```bash
 git clone https://github.com/pimoroni/pimoroni-pico
@@ -63,261 +90,239 @@ git clone https://github.com/pimoroni/pimoroni-pico
 git clone https://github.com/ggldnl/Hexapod-Firmware
 ```
 
-If you have not or don't want to set `PICO_SDK_PATH` and you are using vscode, you can edit `.vscode/settings.json` to pass the path directly to CMake.
+`CMakeLists.txt` includes `pico_sdk_import.cmake` and `pimoroni_pico_import.cmake` (both shipped in this repo). They locate the SDK and the Pimoroni libraries using `PICO_SDK_PATH` (and, by default, expect `pimoroni-pico` next to `pico-sdk`). If you don't want to set `PICO_SDK_PATH` and you use VS Code, you can pass the path to CMake from `.vscode/settings.json` instead.
 
 ### Build
 
-Create a build directory in the root folder of the project and compile.
+Create a build directory in the root of the project and compile:
 
 ```bash
+cd Hexapod-Firmware
 mkdir build
 cd build
 cmake ..
 make
 ```
 
-Once you compile the project you will end up with a `Hexapod.uf2` file inside the `build` directory.
+This produces **`hexapod_firmware.uf2`** inside the `build` directory.
 
-### Delpoy
+### Deploy
 
-- Connect the servo2040 board to the computer;
-- Hold down the `boot/user` button, press the `reset` button at the same time, and let go of both buttons. The Servo2040 should now appear as a drive on the computer;
-- Drag and drop the `Hexapod.uf2` image file to the Servo2040 drive, the device will automatically reboot and start the loaded program.
+- Connect the Servo2040 board to the computer;
+- Hold down the `boot/user` button, press `reset` at the same time, then release both. The Servo2040 appears as a USB drive;
+- Drag and drop `hexapod_firmware.uf2` onto that drive. The board reboots and runs the firmware.
 
-If you built the firmware on the Raspberry Pi that you will use for the Hexapod and you happen to be connected to it with ssh, you can:
+If you built on the Raspberry Pi over SSH:
 
-- Connect the servo2040 board to the raspberry through usb;
-- Hold down the `boot/user` button, press the `reset` button at the same time, and let go of both buttons. The Servo2040 should now appear as a block device when issuing `lsblk`;
-- Look for the new drive (e.g. `/dev/sda1` mounted at `/media/<username>/RPI-RP2`);
-- From the `build` directory, `mv Hexapod.uf2 /media/<username>/RPI-RP2`, the device will automatically reboot and start the loaded program.
+- Connect the Servo2040 to the Pi via USB;
+- Enter boot mode as above (`boot/user` + `reset`). It appears as a block device (`lsblk`);
+- Find the new drive (e.g. `/dev/sda1`, mounted at `/media/<username>/RPI-RP2`);
+- From `build`, run `mv hexapod_firmware.uf2 /media/<username>/RPI-RP2`. The board reboots and runs the firmware.
+
+## 🧪 Host tests
+
+The behaviour layer is SDK-free, so it can be built and run on your PC with plain `g++` (no board, no Pico SDK):
+
+```bash
+./test/run.sh          # or  CXX=clang++ ./test/run.sh
+```
+
+This compiles each `test/test_*.cpp` against a fake hardware interface and exercises kinematics, gait, the state machine and the protocol framing.
+
+If you have the real board connected to your Raspberry Pi, you can run the `protocol_test.py` script to check if it is alive and responding correctly. It only ever reads (telemetry/voltage/current); it never enables the robot or moves a servo.
+
+Wire up the board (see [Connection](#-connection)), then, on the Pi:
+
+```bash
+pip install pyserial
+python3 protocol_test.py
+```
+
+It polls `GetTelemetry` a few times a second and prints the decoded reply:
+
+```
+Polling telemetry on /dev/ttyAMA0 @ 921600 baud (Ctrl-C to stop)...
+[OFF     ] odom=(    0.0,     0.0) mm  yaw=   0.0 deg   7.42 V   0.03 A
+[OFF     ] odom=(    0.0,     0.0) mm  yaw=   0.0 deg   7.41 V   0.03 A
+...
+```
+
+`(no reply)` means nothing came back, usually a swapped TX/RX pair, the wrong baud, or the serial port not enabled on the Pi. The port and baud are constants at the top of the file (`PORT = "/dev/ttyAMA0"`, `BAUD_RATE = 921600` according to the default config); edit them if yours differ.
 
 ## 🔌 Connection
 
-Connect the Servo2040 board to the raspberry pi as follows:
+The board talks to the Pi over UART. The firmware uses **UART1 on GP20 (TX) / GP21 (RX)** (`cfg::UART_TX_PIN` / `cfg::UART_RX_PIN`), which are broken out on the Servo2040's SDA/SCL (Qwiic) header. Wire it as a crossover (each side's TX goes to the other side's RX) and share ground:
 
 <div align="center">
 
-| Raspberry    | Servo2040 |
-|--------------|-----------|
-| 5V           | 5V        |
-| GND          | GND       |
-| GPIO14 (TXD) | SDA (RX)  |
-| GPIO15 (RXD) | SCL (TX)  |
+| Raspberry Pi   | Servo2040        |
+|----------------|------------------|
+| 5V             | 5V               |
+| GND            | GND              |
+| GPIO14 (TXD)   | GP21 / SCL (RX)  |
+| GPIO15 (RXD)   | GP20 / SDA (TX)  |
 
 </div>
 
-Remember to enable hardware uart: 
+> Double-check TX/RX against your board's silkscreen: the firmware transmits on GP20 and receives on GP21. If nothing comes back, a swapped TX/RX pair is the usual cause.
+
+The link runs at **921600 baud** (`cfg::BAUD`).
+
+Enable the hardware UART on the Pi:
 - `sudo raspi-config` > `Interface Options` > `Serial Port`
-- Would you like a login shell to be accessible over serial? > `No`
-- Would you like the serial port hardware to be enabled? > `Yes`
+- Would you like a login shell over serial? > **No**
+- Would you like the serial port hardware enabled? > **Yes**
 - Save and reboot.
 
 ## 📡 Communication protocol
 
-This paragraph outlines the specifications for the communication protocol. Commands are sent from the Raspberry Pi to the Servo2040 and backwards, over a serial connection. 
+Commands travel between the Raspberry Pi and the Servo2040 over the serial link. The authoritative definition is [`src/communication/protocol.hpp`](src/communication/protocol.hpp); the Pi-side Python client mirrors it by hand and is checked byte-for-byte against this C++ encoder in the Controller's tests.
 
-### HDLC
+### Frame layout
 
-The protocol I decided to use is essentially a compact version of HDLC (which stands for High-Level Data Link Control). 
-
-HDLC is a communication protocol used for transmitting data between devices reliably. Originally, it was used in multi-device networks, where one device acted as the master and others as slaves. Currently, HDLC is primarily employed in point-to-point connections, such as between routers or network interfaces.
-
-It works by sending frames like this:
+A compact, HDLC-style frame:
 
 <div align="center">
 
-| SOF | LEN | OPCODE | DATA    | CRC | EOF |
-|-----|-----|--------|---------|-----|-----|
-| 1B  | 1B  | 1B     | nB      | 2B  | 1B  |
+| SOF  | LEN | opcode | payload  | CRC lo | CRC hi |
+|------|-----|--------|----------|--------|--------|
+| 1B   | 1B  | 1B     | LEN B    | 1B     | 1B     |
 
 </div>
 
 <div align="center">
 
-| Field  | Size (bytes) | Description                       |
-|--------|--------------|-----------------------------------|
-| SOF    | 1            | Start-of-frame marker (`0xAA`)    |
-| LEN    | 1            | Length of `OPCODE + DATA`         |
-| OPCODE | 1            | Command identifier                |
-| DATA   | n            | Arguments (binary)                |
-| CRC    | 2            | CRC-16 over `LEN + OPCODE + DATA` |
-| EOF    | 1            | End-of-frame marker (`0x55`)      |
+| Field   | Size | Description                                                       |
+|---------|------|-------------------------------------------------------------------|
+| SOF     | 1    | Start-of-frame marker (`0xAA`)                                     |
+| LEN     | 1    | Payload length only. Opcode is **not** counted (`0..128`)    |
+| opcode  | 1    | Command identifier                                                |
+| payload | n    | Arguments (binary, little-endian)                                 |
+| CRC     | 2    | CRC16-CCITT (poly `0x1021`, init `0xFFFF`) over `LEN + opcode + payload`, little-endian |
 
 </div>
 
-CRC-16 is a 16-bit cyclic redundancy check used to detect errors in transmitted frames. When a receiver gets a frame, it recomputes the CRC-16 and compares it to the received FCS. If they differ, the frame is considered corrupted.
+Total frame size is `LEN + 5`. There is **no end-of-frame byte**: `LEN` bounds the frame and the CRC validates it. On a bad CRC (or a `LEN` larger than 128) the receiver drops the frame and rescans for the next SOF. All multi-byte fields are little-endian; floats are IEEE-754.
+
+### Message kinds
+
+Every opcode is one of two kinds:
+
+- **Fire-and-forget**: no reply. Setpoints and lifecycle commands. Each one also pets a command watchdog: if the board hears nothing for `cfg::WATCHDOG_TIMEOUT_MS` (500 ms) while moving, it stops on its own.
+- **Request/reply**: exactly one reply frame, carrying the **same opcode** as the request (queries), or an `Error` frame (`0xEE`) if the request was refused or malformed.
 
 ### Instruction set
 
-I used the Command design pattern to dispatch commands once extracted from a message.
+The high nibble of the opcode groups it by purpose.
 
-The following table describes the supported operations, their opcodes, the expected arguments, and the response:
-
-<div align="center">
-
-| Operation | OpCode | Arguments | Response |
-|-----------|--------|-----------|----------|
-| Get Voltage | `0x01` | None | voltage(4b) |
-| Get Current | `0x02` | None | current(4b) |
-| Read Sensor | `0x03` | pin (1b) | value(4b) |
-| Set LED | `0x04` | pin(1b), r(1b), g(1b), b(1b) | status(1b) |
-| Set LEDs | `0x05` | count(1b), [pin(1b), r(1b), g(1b), b(1b)] × count | status(1b) |
-| Get LED | `0x06` | pin (1b) | r(1b), g(1b), b(1b) |
-| Get LEDs | `0x07` | count(1b), [pin(1b)] × count | [r(1b), g(1b), b(1b)] × count |
-| Attach Servos | `0x08` | None | status(1b) |
-| Detach Servos | `0x09` | None | status(1b) |
-| Set Servo Pulse Width | `0x0A` | pin(1b), pulse_width(4b) | status(1b) |
-| Set Servo Pulse Widths | `0x0B` | count(1b), [pin(1b), pulse_width(4b)] × count | status(1b) |
-| Set Servo Angle | `0x0C` | pin(1b), angle(4b) | status(1b) |
-| Set Servo Angles | `0x0D` | count(1b), [pin(1b), angle(4b)] × count | status(1b) |
-| Get Servo Pulse Width | `0x0E` | pin (1b) | pulse_width(4b) |
-| Get Servo Pulse Widths | `0x0F` | count(1b), [pin(1b)] × count | pulse_width(4b) × count |
-| Get Servo Angle | `0x10` | pin(1b) | angle(4b) |
-| Get Servo Angles | `0x11` | count(1b), [pin(1b)] × count | angle(4b) × count |
-| Connect Power | `0x12` | None | status(1b) |
-| Disconnect Power | `0x13` | None | status(1b) |
-
-</div>
-
-The response is always guaranteed. For commands that return data (e.g. `get_voltage`), a successful execution returns the actual requested data, while a failure returns all bytes set to `0x00`. For commands that perform actions (e.g. `set_led`), a successful execution returns `0x01`, while a failure returns `0x00`. The length of arguments and responses are expressed in bytes (e.g. 4b means 4 bytes i.e. a float).
-
-Description table:
+**Low-level debug (`0x0x`)**: request/reply, acked with an `AckReply` (`<B` status).
 
 <div align="center">
 
-| Operation | Description |
-|-----------|-------------|
-| Get Voltage | Reads the voltage present on the external power line. |
-| Get Current | Reads the current flowing through the external power line. |
-| Read Sensor | Reads the analog value of the specified input pin. |
-| Set LED | Sets the RGB color of a single LED connected to the specified pin. |
-| Set LEDs | Sets the RGB color of multiple LEDs in a single command. |
-| Get LED | Reads the current RGB color of the specified LED. |
-| Get LEDs | Reads the current RGB color of multiple LEDs. |
-| Attach Servos | Initializes and attaches all configured servo outputs. |
-| Detach Servos | Detaches all servo outputs and disables signal generation. |
-| Set Servo Pulse Width | Sets the pulse width for a single servo. |
-| Set Servo Pulse Widths | Sets the pulse width for multiple servos. |
-| Set Servo Angle | Sets the target angle for a single servo. |
-| Set Servo Angles | Sets the target angle for multiple servos. |
-| Get Servo Pulse Width | Reads the current pulse width of the specified servo. |
-| Get Servo Pulse Widths | Reads the current pulse width of multiple servos. |
-| Get Servo Angle | Reads the current angle of the specified servo. |
-| Get Servo Angles | Reads the current angle of multiple servos. |
-| Connect Power | Enables external power delivery to the servos. |
-| Disconnect Power | Disables external power delivery to the servos. |
+| Operation | OpCode | Payload (`struct` fmt)         | Reply     |
+|-----------|--------|--------------------------------|-----------|
+| Jog Servo | `0x01` | `<BH` channel, pulse_us (0=release) | AckReply |
 
 </div>
 
-### Implementation details
+**Provisioning (`0x1x`)**: request/reply, acked. The Pi pushes the full runtime config at connect, one section per message; these are honoured only while de-energized (OFF/FAULT) so nothing reconfigures mid-motion.
 
-We start defining a shared object pool. 
+<div align="center">
 
-```cpp
-// Shared hardware control objects pool
-ServoCluster servos(pio0, 0, servo2040::SERVO_1, servo2040::NUM_SERVOS);
-WS2812 leds(servo2040::NUM_LEDS, pio1, 0, servo2040::LED_DATA);
-PowerTrace power(AUTO_DISCONNECT_PIN);
-AnalogReader reader;
+| Operation | OpCode | Payload (`struct` fmt) |
+|-----------|--------|------------------------|
+| Provision Body       | `0x10` | `<ffffff` link lengths, standing height, stance radius, cycle time |
+| Provision Mounts     | `0x11` | `<18f` per leg: x, y, yaw    |
+| Provision Direction  | `0x12` | `<18f` per servo: +/-1       |
+| Provision Trim       | `0x13` | `<18f` per servo: trim deg   |
+| Provision Ranges     | `0x14` | `<6f` per joint type: min, max deg |
+| Provision Gaits      | `0x15` | `<12f` per gait: duty, step height, max stride, overlap |
+| Provision Limits     | `0x16` | `<ffffffff` velocity clamps, over-current, low-voltage |
+| Provision Body Pose  | `0x17` | `<12f` per axis: min, max    |
+| Provision Servo Cal  | `0x18` | `<54H` per servo: min, mid, max µs |
+| Provision Pins       | `0x19` | `<18B` physical pin per logical channel |
 
-servos.init();
-leds.start();
-```
+</div>
 
-Each command will take a reference to the object(s) it needs to work with. Commands that need, for example, to read from a sensor (internal or external), will have a reference to the `AnalogReader`, a utility class that encapsulates the logic for multiplexing and reading; the same way, commands that need to work with servos will take a reference to a unique `ServoCluster` object. This limits potential interference between commands and redundancy.
+**Setpoints & lifecycle (`0x3x`)**: fire-and-forget, no reply.
 
-We create a `Dispatcher`, some `Command` objects and register them on the dispatcher:
+<div align="center">
 
-```cpp
-// Initialize the dispatcher
-Dispatcher dispatcher;
+| Operation | OpCode | Payload (`struct` fmt) |
+|-----------|--------|------------------------|
+| Set Velocity  | `0x30` | `<fff` vx, vy (mm/s), wz (deg/s) |
+| Set Body Pose | `0x31` | `<ffffff` x, y, z (mm), roll, pitch, yaw (deg) |
+| Set Gait      | `0x32` | `<B` gait id (0 tripod, 1 wave, 2 ripple) |
+| Enable        | `0x33` | none; run stand-up, end IDLE |
+| Shutdown      | `0x34` | none; run sit-down, end OFF  |
+| Stop          | `0x35` | none; zero velocity (soft stop) |
+| Set LED       | `0x36` | `<BBBBf` mode, r, g, b, blink freq |
+| Heartbeat     | `0x37` | none; keepalive, pets the watchdog |
 
-// Create commands assigning the hardware resources they need to handle
-AttachServosCommand attachServosCommand(&servos);
-...
-ReadSensorCommand readSensorCommand(&reader);
+</div>
 
-// Register commands
-dispatcher.registerCommand(ATTACH_SERVOS_COMMAND, &attachServosCommand);
-...
-dispatcher.registerCommand(READ_SENSOR_COMMAND, &readSensorCommand);
-```
+**Queries (`0x4x`)**: request/reply; the board answers with the same opcode.
 
-Upon receipt of a frame, the `dispatcher` extracts the information from its payload. The first byte is the length of the rest of the payload (`opcode` + `data`). The `opcode` is used to lookup for a command among the registered ones; if a match is found, the `dispatcher` executes it with the remainig bytes in the frame (`data`) as arguments. The result is then sent back to the controlling machine as a new frame.
+<div align="center">
 
-### Adding a new command
+| Operation | OpCode | Reply (`struct` fmt) |
+|-----------|--------|----------------------|
+| Get Telemetry | `0x40` | `<Bfffff` state, odom x, odom y, odom yaw, voltage, current |
+| Get Voltage   | `0x41` | `<f` volts   |
+| Get Current   | `0x42` | `<f` amps    |
+| Get Joints    | `0x43` | `<18f` servo-space angles (deg), leg-major |
 
-As an example we can add a command that simply toggles the status of a variable. It will need no argument and return the state of the variable each time it changes.
+</div>
 
-Create a new header file named `toggle_status_command.hpp` in the commands directory. Implement the class as follows:
+**Board-initiated**
 
-```cpp
-#ifndef TOGGLE_STATUS_COMMAND_HPP
-#define TOGGLE_STATUS_COMMAND_HPP
+<div align="center">
 
-#include "command.hpp"
+| Operation | OpCode | Payload (`struct` fmt) |
+|-----------|--------|------------------------|
+| Error | `0xEE` | `<B` status code |
 
-class ToggleStatusCommand : public Command {
+</div>
 
-private:
+Status codes: `0x00` rejected (wrong state), `0x01` OK, `0x02` unreachable (IK out of range), `0x03` bad opcode, `0x04` bad length.
 
-    bool status;
+### States
 
-public:
+Telemetry reports the state machine (`proto::State`):
 
-    // No hardware lirbary
-    ToggleStatusCommand() : status(false) {}
+<div align="center">
 
-    bool execute(const uint8_t* args, uint8_t args_len, 
-                uint8_t* response, uint8_t* response_len) override {
-        
-        // We expect no input
-        (void) args;
-        (void) args_len;
+| Value | State    | Meaning |
+|-------|----------|---------|
+| 0 | `SETUP`    | rising: stand-up animation running |
+| 1 | `IDLE`     | standing, zero velocity |
+| 2 | `WALK`     | executing a gait |
+| 3 | `SHUTDOWN` | lowering: sit-down animation running |
+| 4 | `FAULT`   | emergency-stopped (over-current / low-voltage); needs Enable to recover |
+| 5 | `OFF`      | de-energized standby, awaiting Enable |
 
-        // Perform the action
-        status = !status;
+</div>
 
-        // Build response
-        *response_len = 1;
-        response[0] = status;
-        
-        return true;
-    }
-};
+The stand-up and sit-down animations are uninterruptible; only a fault can break in.
 
-#endif // TOGGLE_STATUS_COMMAND_HPP
-```
+## 🧩 Architecture
 
-To be a valid command, the new class must extend the `Command` base class and implement the `execute(...)` method.
+`main.cpp` is a small scheduler that does two things forever:
 
-Next, include the new command in your main script and register it on the dispatcher using a new opcode. Here’s how to do it:
+1. **Transport**: drain the UART, feeding each byte to a `proto::FrameParser`. When a complete, CRC-valid frame arrives, `router::dispatch` turns it into a call on the `robot::Robot` intent API (`enable()`, `set_velocity()`, `set_gait()`, ...) and, for a query, writes a reply frame back.
+2. **Control**: at a fixed `cfg::CONTROL_RATE_HZ` (50 Hz) tick, call `robot.update(dt)`, which advances the state machine, runs the gait, solves IK, and writes the 18 servo angles through the hardware interface.
 
-```cpp
-#include "commands/toggle_status_command.hpp"
+The robot reasons in a clean kinematic frame and only maps to servo space (direction/trim/clamp, degrees) at the very end. Because that whole behaviour layer talks to hardware through the abstract `hw::Interface`, it builds and is tested on the host against a fake. `servo2040_hal.hpp` is the only piece that needs a board.
 
-// ...
+Most of `config.hpp` is a baked default that also makes the board fully functional standalone; the values the Pi is allowed to override at connect (geometry, kinematic map, gaits, limits) are mutable globals that the provisioning opcodes assign into.
 
-int main() {
+### Adding a new opcode
 
-  // ...
-
-  // Initialize the dispatcher
-  Dispatcher dispatcher;
-
-  // Create the commands
-  // ...
-  ToggleStatusCommand toggleStatusCommand();
-
-  // Register the commands
-  // ...
-  dispatcher.registerCommand(0x1F, &toggleStatusCommand);  // 0x1F is a random free opcode
-
-  // ...
-}
-```
-
-Once registered, the dispatcher will automatically invoke the new `ToggleStatusCommand` when the opcode `0x1F` is received. The following bytes are treated as arguments and interpreted.
+1. Add a value to `enum class Opcode` in `protocol.hpp` (mind the nibble groups).
+2. If it carries data, add a `#pragma pack`-ed payload `struct` and a `static_assert` pinning its size; note the Python `struct` format in the `// py:` comment.
+3. If it takes no reply, list it in `kind_of()` as fire-and-forget.
+4. Handle it in `router::dispatch` (validate `len`, decode the payload, call the robot, build the reply/ack).
+5. Mirror the opcode and payload format in the Pi-side `hexapod` client (Controller repo) so both ends stay in lockstep.
 
 ## 🤝 Contribution
 
