@@ -123,6 +123,7 @@ enum class Opcode : uint8_t {
   GetVoltage = 0x41,   // ()           -> VoltageReply
   GetCurrent = 0x42,   // ()           -> CurrentReply
   GetJoints = 0x43,    // ()           -> JointsReply
+  GetBodyPose = 0x44,  // ()           -> BodyPoseReply
 
   // board-initiated
   Error = 0xEE, // ErrorReply
@@ -264,6 +265,14 @@ struct JointsReply {          // py: "<18f"
   float angle[cfg::N_SERVOS]; // servo-space deg, leg-major (leg*3 + joint)
 };
 
+// Live body pose: the interpolated value the board is slewing toward. 
+// Same layout/units as SetBodyPoseMsg so a set/get round-trips 
+// (z relative to standing height).
+struct BodyPoseReply {    // py: "<ffffff"
+  float x, y, z;          // mm, body shift (z relative to standing height)
+  float roll, pitch, yaw; // deg
+};
+
 struct ErrorReply { // py: "<B"
   uint8_t status;   // proto::Status
 };
@@ -295,6 +304,7 @@ static_assert(sizeof(TelemetryReply) == 21, "TelemetryReply size");
 static_assert(sizeof(VoltageReply) == 4, "VoltageReply size");
 static_assert(sizeof(CurrentReply) == 4, "CurrentReply size");
 static_assert(sizeof(JointsReply) == 72, "JointsReply size");
+static_assert(sizeof(BodyPoseReply) == 24, "BodyPoseReply size");
 static_assert(sizeof(ErrorReply) == 1, "ErrorReply size");
 static_assert(sizeof(AckReply) == 1, "AckReply size");
 

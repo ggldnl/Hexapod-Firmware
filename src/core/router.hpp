@@ -244,6 +244,11 @@ inline uint8_t dispatch(robot::Robot &r, uint8_t opcode, const uint8_t *payload,
     std::memcpy(j.angle, r.joints().deg, sizeof j.angle);
     return reply(&j, sizeof j);
   }
+  case Opcode::GetBodyPose: {
+    proto::BodyPoseReply p{};
+    r.body_pose(p.x, p.y, p.z, p.roll, p.pitch, p.yaw);
+    return reply(&p, sizeof p);
+  }
 
   default:
     return error(Status::BAD_OPCODE);

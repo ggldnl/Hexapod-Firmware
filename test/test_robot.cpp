@@ -227,6 +227,18 @@ static void routing() {
     n = route(r, uint8_t(Opcode::GetJoints), nullptr, 0, reply, rop);
     CHECK(n == sizeof(proto::JointsReply), "joints reply length");
 
+    // Live body pose: command an offset, let it slew, and read it back. The
+    // reply is the interpolated value, in set_body_pose units (deg, z rel.).
+    proto::SetBodyPoseMsg bp{5.0f, -3.0f, -8.0f, 2.0f, 1.0f, 4.0f};
+    route(r, uint8_t(Opcode::SetBodyPose), &bp, sizeof bp, reply, rop);
+    pump(r, 500);  // slew to the commanded pose
+    n = route(r, uint8_t(Opcode::GetBodyPose), nullptr, 0, reply, rop);
+    CHECK(n == sizeof(proto::BodyPoseReply), "body-pose reply length");
+    CHECK(rop == uint8_t(Opcode::GetBodyPose), "body-pose reply carries its opcode");
+    proto::BodyPoseReply bpr; std::memcpy(&bpr, reply, sizeof bpr);
+    CHECK(approx(bpr.z, -8.0f, 1e-2f), "body-pose z is the commanded height offset");
+    CHECK(approx(bpr.yaw, 4.0f, 1e-2f), "body-pose yaw round-trips in degrees");
+
     n = route(r, 0x7F, nullptr, 0, reply, rop);   // unknown opcode
     CHECK(rop == uint8_t(Opcode::Error), "unknown opcode -> Error frame");
     proto::ErrorReply er; std::memcpy(&er, reply, sizeof er);

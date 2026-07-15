@@ -198,6 +198,19 @@ public:
     yaw_rad = odom_yaw_;
   }
   const ServoAngles &joints() const { return servos_; }
+  
+  // Live body pose (the interpolated value mid-slew, not the target), in the
+  // same units/reference as set_body_pose: x/y/z mm with z relative to standing
+  // height, roll/pitch/yaw deg.
+  void body_pose(float &x, float &y, float &z, float &roll, float &pitch,
+                 float &yaw) const {
+    x = body_pos_.x;
+    y = body_pos_.y;
+    z = body_pos_.z - cfg::STANDING_HEIGHT;
+    roll = math::rad2deg(body_rpy_.x);
+    pitch = math::rad2deg(body_rpy_.y);
+    yaw = math::rad2deg(body_rpy_.z);
+  }
 
 private:
   static constexpr float VEL_DEADBAND = 0.5f; // mm/s  : snap smoothed v to 0 below
