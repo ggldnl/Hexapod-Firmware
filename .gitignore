@@ -1,5 +1,7 @@
+# Build and shit
 build/*
-test/*
+__pycache__/*
 
+# IDEs
 .idea/*
 .vscode/*
