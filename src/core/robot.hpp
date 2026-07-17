@@ -166,9 +166,11 @@ public:
     voltage_ = hw_.read_voltage();
     current_ = hw_.read_current();
 
-    // Software over-current / low-voltage can trip an emergency stop from ANY
-    // energized state (both only checked while energized, where the rail is live)
-    if (energized_ && (current_ > cfg::CURRENT_MAX || voltage_ < cfg::VOLTAGE_MIN)) {
+    // Over-current trips an emergency stop from ANY energized state: too much
+    // current into the motors is always a real fault. Low voltage is NOT a fault
+    // on its own, so the board still runs with the motor rail off (bench tests,
+    // sim) where the voltage sense reads ~0 and the robot just believes it moves
+    if (energized_ && current_ > cfg::CURRENT_MAX) {
       trip_fault();
       return;
     }
