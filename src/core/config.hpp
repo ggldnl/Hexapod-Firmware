@@ -178,7 +178,7 @@ constexpr unsigned POWER_CUTOFF_PIN = 19; // power cutoff trace
 
 // Control loop (structural)
 constexpr float CONTROL_RATE_HZ = 50.0f;
-constexpr unsigned WATCHDOG_TIMEOUT_MS = 500; // no setpoint/heartbeat -> stop
+constexpr unsigned WATCHDOG_TIMEOUT_MS = 500; // no setpoint/heartbeat within this window -> auto sit-down and power off
 
 // Safety (provisionable: the Pi may tighten/relax the software cutoffs). Both are
 // enforced in the control loop, but only while energized.

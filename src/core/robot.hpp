@@ -222,8 +222,11 @@ private:
   // IDLE / WALK
   void run_active(float dt) {
     since_cmd_ += dt;
-    if (since_cmd_ > cfg::WATCHDOG_TIMEOUT_MS / 1000.0f) // lost comms -> stand still
-      tvx_ = tvy_ = twz_ = 0.0f;
+    // Lost comms: sit down and power off instead of holding torque forever (ends in OFF, so the link must re-enable to stand)
+    if (since_cmd_ > cfg::WATCHDOG_TIMEOUT_MS / 1000.0f) {
+      start_sit_down();
+      return;
+    }
 
     smooth_commands(dt);
     slew_body(dt); // toward the commanded body pose
