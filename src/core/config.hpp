@@ -47,24 +47,30 @@ enum Leg : uint8_t {
 
 enum Joint : uint8_t { COXA = 0, FEMUR, TIBIA };
 
-// Leg link lengths (mm), shared by all six legs
-inline float COXA_LEN = 62.0f;
-inline float FEMUR_LEN = 77.0f;
-inline float TIBIA_LEN = 100.0f;
+// Leg link geometry (mm), shared by all six legs. COXA_LEN is the RADIAL
+// distance from the coxa axis to the coxa-femur joint; COXA_OFFSET is how far
+// that joint sits to the side of the coxa axis (+ left, looking out along the
+// leg), which puts the femur/tibia plane off the axis rather than through it.
+inline float COXA_LEN = 68.0f;
+inline float COXA_OFFSET = 0.0f;
+inline float FEMUR_LEN = 76.7f;
+inline float TIBIA_LEN = 99.6f;
 
 // Where each leg mounts on the body (body frame)
 struct LegMount {
   float x;       // mm
   float y;       // mm
+  float z;       // mm, height of the coxa-femur joint over the body origin
   float yaw_deg; // mounting yaw of the coxa axis
 };
 inline LegMount MOUNT[N_LEGS] = {
-    {82.0f, -57.0f, -45.0f},   // FRONT_RIGHT
-    {0.0f, -71.0f, -90.0f},    // MIDDLE_RIGHT
-    {-82.0f, -57.0f, -135.0f}, // REAR_RIGHT
-    {-82.0f, 57.0f, 135.0f},   // REAR_LEFT
-    {0.0f, 71.0f, 90.0f},      // MIDDLE_LEFT
-    {82.0f, 57.0f, 45.0f},     // FRONT_LEFT
+    // x, y, z, yaw
+    {82.0f, -57.0f, 0.0f, -45.0f},   // FRONT_RIGHT
+    {0.0f, -71.0f, 0.0f, -90.0f},    // MIDDLE_RIGHT
+    {-82.0f, -57.0f, 0.0f, -135.0f}, // REAR_RIGHT
+    {-82.0f, 57.0f, 0.0f, 135.0f},   // REAR_LEFT
+    {0.0f, 71.0f, 0.0f, 90.0f},      // MIDDLE_LEFT
+    {82.0f, 57.0f, 0.0f, 45.0f},     // FRONT_LEFT
 };
 
 // Servo-kinematic mapping

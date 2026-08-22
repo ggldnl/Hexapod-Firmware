@@ -97,8 +97,8 @@ enum class Opcode : uint8_t {
   JogServo = 0x01, // JogServoMsg -> AckReply  (raw pulse to one servo)
 
   // provisioning / runtime config (0x1x) -> AckReply
-  ProvisionBody = 0x10,      // ProvisionBodyMsg       link lengths, heights, cadence
-  ProvisionMounts = 0x11,    // ProvisionMountsMsg     per-leg mount pose (x, y, yaw)
+  ProvisionBody = 0x10,      // ProvisionBodyMsg       leg geometry, heights, cadence
+  ProvisionMounts = 0x11,    // ProvisionMountsMsg     per-leg mount pose (x, y, z, yaw)
   ProvisionDirection = 0x12, // ProvisionDirectionMsg  per-servo direction (+/-1)
   ProvisionTrim = 0x13,      // ProvisionTrimMsg       per-servo trim (deg)
   ProvisionRanges = 0x14,    // ProvisionRangesMsg     per-joint-type servo clamp
@@ -189,15 +189,16 @@ struct JogServoMsg { // py: "<BH"
 // Provisioning: the Pi pushes the full runtime config at connect, one section
 // per message. Applied only while de-energized. Arrays are leg-major /
 // joint-major to mirror the config layout.
-struct ProvisionBodyMsg { // py: "<ffffff"
+struct ProvisionBodyMsg { // py: "<fffffff"
   float coxa_len, femur_len, tibia_len; // mm
+  float coxa_offset;                    // mm, leg plane off the coxa axis
   float standing_height;                // mm
   float stance_radius;                  // mm
   float cycle_time;                     // s
 };
 
-struct ProvisionMountsMsg {          // py: "<18f"  per leg: x, y, yaw_deg
-  float mount[cfg::N_LEGS][3];       // [leg] = {x mm, y mm, yaw deg}
+struct ProvisionMountsMsg {          // py: "<24f"  per leg: x, y, z, yaw_deg
+  float mount[cfg::N_LEGS][4];       // [leg] = {x mm, y mm, z mm, yaw deg}
 };
 
 // Servo-kinematic map, split to mirror the config YAML: direction and trim are
@@ -290,8 +291,8 @@ static_assert(sizeof(SetBodyPoseMsg) == 24, "SetBodyPoseMsg size");
 static_assert(sizeof(SetGaitMsg) == 1, "SetGaitMsg size");
 static_assert(sizeof(SetLedMsg) == 8, "SetLedMsg size");
 static_assert(sizeof(JogServoMsg) == 3, "JogServoMsg size");
-static_assert(sizeof(ProvisionBodyMsg) == 24, "ProvisionBodyMsg size");
-static_assert(sizeof(ProvisionMountsMsg) == 72, "ProvisionMountsMsg size");
+static_assert(sizeof(ProvisionBodyMsg) == 28, "ProvisionBodyMsg size");
+static_assert(sizeof(ProvisionMountsMsg) == 96, "ProvisionMountsMsg size");
 static_assert(sizeof(ProvisionDirectionMsg) == 72, "ProvisionDirectionMsg size");
 static_assert(sizeof(ProvisionTrimMsg) == 72, "ProvisionTrimMsg size");
 static_assert(sizeof(ProvisionRangesMsg) == 24, "ProvisionRangesMsg size");

@@ -31,19 +31,25 @@ struct IkResult {
 
 // Leg mount pose in the body frame, from baked config
 inline Vec3 mount_pos(int leg) {
-  return {cfg::MOUNT[leg].x, cfg::MOUNT[leg].y, 0.0f};
+  return {cfg::MOUNT[leg].x, cfg::MOUNT[leg].y, cfg::MOUNT[leg].z};
 }
 inline float mount_yaw(int leg) {
   return math::deg2rad(cfg::MOUNT[leg].yaw_deg);
 }
 
 // 2-link planar IK in the leg frame: the coxa is a yaw about +z; femur and
-// tibia live in the vertical radial plane. Returns ok=false when the target is
-// out of reach
+// tibia live in a vertical plane parallel to the radial one but pushed
+// COXA_OFFSET to the side, so the coxa has to turn past the target's bearing
+// by however much the offset subtends. Returns ok=false when the target is out
+// of reach, including targets closer to the axis than the offset itself
 inline IkResult leg_inverse(float x, float y, float z) {
   IkResult r;
-  const float coxa = std::atan2(y, x);
-  const float reach = std::sqrt(x * x + y * y) - cfg::COXA_LEN;
+  const float rho2 = x * x + y * y;
+  if (rho2 < cfg::COXA_OFFSET * cfg::COXA_OFFSET) return r; // inside the offset
+  // Distance covered inside the leg plane, and the bearing the offset eats
+  const float radial = std::sqrt(rho2 - cfg::COXA_OFFSET * cfg::COXA_OFFSET);
+  const float coxa = std::atan2(y, x) - std::atan2(cfg::COXA_OFFSET, radial);
+  const float reach = radial - cfg::COXA_LEN;
   const float d = std::sqrt(reach * reach + z * z);
   if (d > (cfg::FEMUR_LEN + cfg::TIBIA_LEN) ||
       d < std::fabs(cfg::FEMUR_LEN - cfg::TIBIA_LEN))
@@ -76,7 +82,10 @@ inline Vec3 leg_forward(float coxa, float femur, float tibia) {
                        cfg::TIBIA_LEN * std::cos(femur + tibia);
   const float z = cfg::FEMUR_LEN * std::sin(femur) +
                   cfg::TIBIA_LEN * std::sin(femur + tibia);
-  return {radial * std::cos(coxa), radial * std::sin(coxa), z};
+  // The leg reaches out inside its own plane, which the coxa swings around
+  const float c = std::cos(coxa), s = std::sin(coxa);
+  return {radial * c - cfg::COXA_OFFSET * s, radial * s + cfg::COXA_OFFSET * c,
+          z};
 }
 
 // Full IK for one leg: world-frame foot target + body pose -> joint angles

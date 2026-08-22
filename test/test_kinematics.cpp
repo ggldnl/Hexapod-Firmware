@@ -18,14 +18,14 @@ static bool same(const Vec3& a, const Vec3& b, float eps = 0.05f) {
     return approx(a.x, b.x, eps) && approx(a.y, b.y, eps) && approx(a.z, b.z, eps);
 }
 
-// Hand-computed sanity check: zero joint angles fully extend the leg radially
-// (62+77+100 = 239 mm along +x in the leg frame), then the -45 deg mount rotation
-// and the (82,-57) offset put leg 0's foot at ~(251, -226, 0) in the body frame.
+// Hand-computed sanity check: zero joint angles extend the leg to 68+76.7+99.6 =
+// 244.3 mm along +x inside its own plane, which COXA_OFFSET = 0 puts on the
+// coxa axis, so the -45 deg mount and the (82,-57) offset land it at ~(254.75, -229.75, 0).
 static void fk_absolute() {
     std::printf("FK absolute value (leg 0, zero angles)\n");
     Vec3 foot = kin::forward(cfg::FRONT_RIGHT, 0, 0, 0, {}, {}, false);
-    CHECK(approx(foot.x,  251.0f, 0.1f), "leg0 zero-pose foot x ~= 251");
-    CHECK(approx(foot.y, -226.0f, 0.1f), "leg0 zero-pose foot y ~= -226");
+    CHECK(approx(foot.x,  254.75f, 0.1f), "leg0 zero-pose foot x ~= 254.75");
+    CHECK(approx(foot.y, -229.75f, 0.1f), "leg0 zero-pose foot y ~= -229.75");
     CHECK(approx(foot.z,    0.0f, 0.1f), "leg0 zero-pose foot z ~= 0");
 }
 

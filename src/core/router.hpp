@@ -110,6 +110,7 @@ inline uint8_t dispatch(robot::Robot &r, uint8_t opcode, const uint8_t *payload,
     proto::ProvisionBodyMsg m;
     std::memcpy(&m, payload, sizeof m);
     cfg::COXA_LEN = m.coxa_len;
+    cfg::COXA_OFFSET = m.coxa_offset;
     cfg::FEMUR_LEN = m.femur_len;
     cfg::TIBIA_LEN = m.tibia_len;
     cfg::STANDING_HEIGHT = m.standing_height;
@@ -126,7 +127,8 @@ inline uint8_t dispatch(robot::Robot &r, uint8_t opcode, const uint8_t *payload,
     for (int leg = 0; leg < cfg::N_LEGS; ++leg) {
       cfg::MOUNT[leg].x = m.mount[leg][0];
       cfg::MOUNT[leg].y = m.mount[leg][1];
-      cfg::MOUNT[leg].yaw_deg = m.mount[leg][2];
+      cfg::MOUNT[leg].z = m.mount[leg][2];
+      cfg::MOUNT[leg].yaw_deg = m.mount[leg][3];
     }
     r.reconfigure();
     return ack(Status::OK);

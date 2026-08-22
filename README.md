@@ -231,8 +231,8 @@ The high nibble of the opcode groups it by purpose.
 
 | Operation | OpCode | Payload (`struct` fmt) |
 |-----------|--------|------------------------|
-| Provision Body       | `0x10` | `<ffffff` link lengths, standing height, stance radius, cycle time |
-| Provision Mounts     | `0x11` | `<18f` per leg: x, y, yaw    |
+| Provision Body       | `0x10` | `<fffffff` link lengths, coxa offset, standing height, stance radius, cycle time |
+| Provision Mounts     | `0x11` | `<24f` per leg: x, y, z, yaw |
 | Provision Direction  | `0x12` | `<18f` per servo: +/-1       |
 | Provision Trim       | `0x13` | `<18f` per servo: trim deg   |
 | Provision Ranges     | `0x14` | `<6f` per joint type: min, max deg |
