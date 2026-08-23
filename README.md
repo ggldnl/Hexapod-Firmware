@@ -153,16 +153,12 @@ Polling telemetry on /dev/ttyAMA0 @ 921600 baud (Ctrl-C to stop)...
 
 The board talks to the Pi over UART. The firmware uses **UART1 on GP20 (TX) / GP21 (RX)** (`cfg::UART_TX_PIN` / `cfg::UART_RX_PIN`), which are broken out on the Servo2040's SDA/SCL (Qwiic) header. Wire it as a crossover (each side's TX goes to the other side's RX) and share ground:
 
-<div align="center">
-
 | Raspberry Pi   | Servo2040        |
 |----------------|------------------|
 | 5V             | 5V               |
 | GND            | GND              |
 | GPIO14 (TXD)   | GP21 / SCL (RX)  |
 | GPIO15 (RXD)   | GP20 / SDA (TX)  |
-
-</div>
 
 > Double-check TX/RX against your board's silkscreen: the firmware transmits on GP20 and receives on GP21. If nothing comes back, a swapped TX/RX pair is the usual cause.
 
@@ -182,15 +178,10 @@ Commands travel between the Raspberry Pi and the Servo2040 over the serial link.
 
 A compact, HDLC-style frame:
 
-<div align="center">
-
 | SOF  | LEN | opcode | payload  | CRC lo | CRC hi |
 |------|-----|--------|----------|--------|--------|
 | 1B   | 1B  | 1B     | LEN B    | 1B     | 1B     |
 
-</div>
-
-<div align="center">
 
 | Field   | Size | Description                                                       |
 |---------|------|-------------------------------------------------------------------|
@@ -199,8 +190,6 @@ A compact, HDLC-style frame:
 | opcode  | 1    | Command identifier                                                |
 | payload | n    | Arguments (binary, little-endian)                                 |
 | CRC     | 2    | CRC16-CCITT (poly `0x1021`, init `0xFFFF`) over `LEN + opcode + payload`, little-endian |
-
-</div>
 
 Total frame size is `LEN + 5`. There is **no end-of-frame byte**: `LEN` bounds the frame and the CRC validates it. On a bad CRC (or a `LEN` larger than 128) the receiver drops the frame and rescans for the next SOF. All multi-byte fields are little-endian; floats are IEEE-754.
 
@@ -217,17 +206,11 @@ The high nibble of the opcode groups it by purpose.
 
 **Low-level debug (`0x0x`)**: request/reply, acked with an `AckReply` (`<B` status).
 
-<div align="center">
-
 | Operation | OpCode | Payload (`struct` fmt)         | Reply     |
 |-----------|--------|--------------------------------|-----------|
 | Jog Servo | `0x01` | `<BH` channel, pulse_us (0=release) | AckReply |
 
-</div>
-
 **Provisioning (`0x1x`)**: request/reply, acked. The Pi pushes the full runtime config at connect, one section per message; these are honoured only while de-energized (OFF/FAULT) so nothing reconfigures mid-motion.
-
-<div align="center">
 
 | Operation | OpCode | Payload (`struct` fmt) |
 |-----------|--------|------------------------|
@@ -242,11 +225,7 @@ The high nibble of the opcode groups it by purpose.
 | Provision Servo Cal  | `0x18` | `<54H` per servo: min, mid, max µs |
 | Provision Pins       | `0x19` | `<18B` physical pin per logical channel |
 
-</div>
-
 **Setpoints & lifecycle (`0x3x`)**: fire-and-forget, no reply.
-
-<div align="center">
 
 | Operation | OpCode | Payload (`struct` fmt) |
 |-----------|--------|------------------------|
@@ -259,11 +238,7 @@ The high nibble of the opcode groups it by purpose.
 | Set LED       | `0x36` | `<BBBBf` mode, r, g, b, blink freq |
 | Heartbeat     | `0x37` | none; keepalive, pets the watchdog |
 
-</div>
-
 **Queries (`0x4x`)**: request/reply; the board answers with the same opcode.
-
-<div align="center">
 
 | Operation | OpCode | Reply (`struct` fmt) |
 |-----------|--------|----------------------|
@@ -272,25 +247,17 @@ The high nibble of the opcode groups it by purpose.
 | Get Current   | `0x42` | `<f` amps    |
 | Get Joints    | `0x43` | `<18f` servo-space angles (deg), leg-major |
 
-</div>
-
 **Board-initiated**
-
-<div align="center">
 
 | Operation | OpCode | Payload (`struct` fmt) |
 |-----------|--------|------------------------|
 | Error | `0xEE` | `<B` status code |
-
-</div>
 
 Status codes: `0x00` rejected (wrong state), `0x01` OK, `0x02` unreachable (IK out of range), `0x03` bad opcode, `0x04` bad length.
 
 ### States
 
 Telemetry reports the state machine (`proto::State`):
-
-<div align="center">
 
 | Value | State    | Meaning |
 |-------|----------|---------|
@@ -300,8 +267,6 @@ Telemetry reports the state machine (`proto::State`):
 | 3 | `SHUTDOWN` | lowering: sit-down animation running |
 | 4 | `FAULT`   | emergency-stopped (over-current / low-voltage); needs Enable to recover |
 | 5 | `OFF`      | de-energized standby, awaiting Enable |
-
-</div>
 
 The stand-up and sit-down animations are uninterruptible; only a fault can break in.
 
