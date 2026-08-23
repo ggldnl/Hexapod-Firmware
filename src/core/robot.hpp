@@ -86,7 +86,15 @@ inline bool resolve(const Vec3 (&feet)[cfg::N_LEGS], const Vec3 &body_pos,
 
 class Robot {
 public:
-  explicit Robot(hw::Interface &hw) : hw_(hw) { hw_.set_power(false); }
+  explicit Robot(hw::Interface &hw) : hw_(hw) {
+    hw_.set_power(false);
+    // Rest folded, not at servo zero: zero is an arbitrary servo reading, and
+    // whether it happens to look folded depends entirely on the leg's shape.
+    // Written through to the HAL as well, so a read-back sees the rest pose and
+    // the rail energizes into it rather than into whatever was last on the bus
+    set_curl_pose(servos_);
+    hw_.write_servos(servos_.deg);
+  }
 
   // Intent API (called by the dispatcher). Each marks the link alive (petting watchdog)
 
@@ -149,8 +157,16 @@ public:
   bool provisionable() const {
     return state_ == proto::State::OFF || state_ == proto::State::FAULT;
   }
-  // Re-derive config-cached state after geometry (mounts/stance) is provisioned.
-  void reconfigure() { gait_.reconfigure(); }
+  // Re-derive config-cached state after geometry (mounts/stance) or the servo
+  // map is provisioned. While de-energized the commanded pose IS the rest pose,
+  // and the config being provisioned is what defines it, so it follows along.
+  void reconfigure() {
+    gait_.reconfigure();
+    if (!energized_) {
+      set_curl_pose(servos_);
+      hw_.write_servos(servos_.deg);
+    }
+  }
   // Physical provisioning / calibration jog live in the HAL.
   void set_servo_calibration(uint8_t ch, uint16_t min_us, uint16_t mid_us,
                              uint16_t max_us) {

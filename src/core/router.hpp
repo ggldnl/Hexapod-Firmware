@@ -139,6 +139,7 @@ inline uint8_t dispatch(robot::Robot &r, uint8_t opcode, const uint8_t *payload,
     proto::ProvisionDirectionMsg m;
     std::memcpy(&m, payload, sizeof m);
     for (int ch = 0; ch < cfg::N_SERVOS; ++ch) cfg::DIRECTION[ch] = m.direction[ch];
+    r.reconfigure(); // the servo map moves the de-energized rest pose
     return ack(Status::OK);
   }
   case Opcode::ProvisionTrim: {
@@ -147,6 +148,7 @@ inline uint8_t dispatch(robot::Robot &r, uint8_t opcode, const uint8_t *payload,
     proto::ProvisionTrimMsg m;
     std::memcpy(&m, payload, sizeof m);
     for (int ch = 0; ch < cfg::N_SERVOS; ++ch) cfg::TRIM_DEG[ch] = m.trim_deg[ch];
+    r.reconfigure();
     return ack(Status::OK);
   }
   case Opcode::ProvisionRanges: {
@@ -158,6 +160,7 @@ inline uint8_t dispatch(robot::Robot &r, uint8_t opcode, const uint8_t *payload,
       cfg::RANGE[j].min_deg = m.range[j][0];
       cfg::RANGE[j].max_deg = m.range[j][1];
     }
+    r.reconfigure(); // the joint maxima ARE the folded pose
     return ack(Status::OK);
   }
   case Opcode::ProvisionGaits: {
