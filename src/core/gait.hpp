@@ -162,10 +162,21 @@ private:
       p.z = 0.0f;
       return p;
     }
-    // Swing: airborne, arcing back (-half) to front (+half) on a parabola
+    // Swing: airborne, back (-half) to front (+half). The foot leaves and lands
+    // moving exactly like a stance foot, so there is no impact or scuff at the
+    // tripod switch: horizontally a cubic Hermite whose end slopes match the
+    // stance velocity (it carries on backward briefly after lift-off and is
+    // already sliding back at touchdown, overshooting the stride ends by ~5%),
+    // vertically sin^2 so the lift starts and ends with zero vertical speed
     const float s = (lp - df) / (1.0f - df); // 0..1 across swing
-    Vec3 p = n + stride * (s - 0.5f);
-    p.z = step_height() * 4.0f * s * (1.0f - s);
+    const float m = -(1.0f - df) / df;       // stance slope, in stride per unit s
+    const float s2 = s * s, s3 = s2 * s;
+    const float h00 = 2.0f * s3 - 3.0f * s2 + 1.0f, h10 = s3 - 2.0f * s2 + s;
+    const float h01 = -2.0f * s3 + 3.0f * s2, h11 = s3 - s2;
+    const float progress = -0.5f * h00 + 0.5f * h01 + m * (h10 + h11);
+    Vec3 p = n + stride * progress;
+    const float lift = std::sin(math::PI * s);
+    p.z = step_height() * lift * lift;
     return p;
   }
 

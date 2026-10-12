@@ -132,9 +132,9 @@ struct GaitParams {
 };
 inline GaitParams GAIT[3] = {
     // duty, step_h, max_stride, overlap
-    {0.5000f, 60.0f, 120.0f, 0.0f}, // TRIPOD
-    {0.8333f, 60.0f, 90.0f, 0.0f},  // WAVE
-    {0.6700f, 60.0f, 110.0f, 0.0f}, // RIPPLE
+    {0.5500f, 30.0f, 90.0f, 0.0f},  // TRIPOD
+    {0.8333f, 30.0f, 90.0f, 0.0f},  // WAVE
+    {0.6700f, 30.0f, 110.0f, 0.0f}, // RIPPLE
 };
 
 // Constant-cadence locomotion model: one full gait cycle every CYCLE_TIME
