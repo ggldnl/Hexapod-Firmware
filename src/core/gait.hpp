@@ -9,6 +9,10 @@
 //   max_stride, the whole twist (linear + angular together) is scaled down so
 //   the turn radius is preserved.
 //
+// Walk <-> rest: the cycle only ever stops, starts or switches gait with every
+//   foot on the ground. A zero command lets the swings in progress land first,
+//   and a gait change requested mid-walk waits until the walk is at rest.
+//
 // Output: foot targets, one Vec3 per leg (mm). They live in the body's neutral
 //   ground frame: xy in the body plane, z = 0 for a grounded foot and z > 0
 //   mid-swing. Standing height, body lean and body shift are not taken into
@@ -73,8 +77,20 @@ public:
     reset();
   }
 
-  void set_gait(GaitId g) { gait_ = g; }
-  GaitId gait() const { return gait_; }
+  // Switching gait re-maps every leg's phase, so doing it mid-walk would drop
+  // swinging feet and fling grounded ones up. While walking, the request is held
+  // and applied once the walk has come to rest; at rest it applies immediately.
+  void set_gait(GaitId g) {
+    if (walking_) {
+      pending_gait_ = g;
+      has_pending_ = true;
+    } else {
+      gait_ = g;
+      has_pending_ = false;
+      settle_phase();
+    }
+  }
+  GaitId gait() const { return gait_; } // the gait in use (not a pending one)
 
   // Re-derive config-cached state (the neutral stance depends on cfg::MOUNT and
   // cfg::STANCE_RADIUS). Call after those are provisioned; the per-gait params
@@ -82,10 +98,18 @@ public:
   // refresh.
   void reconfigure() { compute_neutral(); }
 
-  // Clear phase and per-update state. Call before starting a fresh walk
+  // Clear phase and per-update state. Call before starting a fresh walk. A gait
+  // requested mid-walk still takes effect
   void reset() {
     phase_ = 0.0f;
     achieved_vx_ = achieved_vy_ = achieved_wz_deg_ = 0.0f;
+    walking_ = stopping_ = false;
+    stop_left_ = 0.0f;
+    if (has_pending_) {
+      gait_ = pending_gait_;
+      has_pending_ = false;
+    }
+    settle_phase();
   }
 
   // Advance the gait by dt and return this tick's foot targets.
@@ -109,6 +133,9 @@ public:
 
   // Queries (handy for telemetry/body compensation)
   float phase() const { return phase_; }
+  // True while the cycle runs, including the steps that finish after the command
+  // drops to zero; false once frozen with every foot on the ground
+  bool walking() const { return walking_; }
   const Vec3 &neutral(int leg) const { return neutral_[leg]; }
   bool in_stance(int leg) const {
     return PATTERN[gait_].group_of[leg] < 0 || leg_phase(leg, phase_) < duty();
@@ -122,6 +149,44 @@ private:
   float overlap() const { return cfg::GAIT[gait_].overlap; }
 
   static float wrap01(float p) { return p - std::floor(p); }
+
+  // A swing this close to either end (in swing progress) counts as grounded: the
+  // sin^2 lift is under 0.12% of step height there. It absorbs float noise at the
+  // boundaries, and lets gaits whose swing windows tile the cycle exactly (wave)
+  // rest at the instant one leg lands and the next has not yet lifted
+  static constexpr float REST_TOL = 0.02f;
+
+  bool airborne(int leg, float global) const {
+    if (PATTERN[gait_].group_of[leg] < 0) return false;
+    const float lp = leg_phase(leg, global);
+    const float s = (lp - duty()) / (1.0f - duty());
+    return lp > duty() && s > REST_TOL && s < 1.0f - REST_TOL;
+  }
+
+  // How far (in cycles) the phase must run from `global` before no foot is in
+  // the air: let every swing in progress land, and repeat for swings that began
+  // meanwhile. -1 if the gait never has every foot down (swing windows overlap,
+  // e.g. tripod with duty < 0.5), in which case it cannot stop cleanly
+  float rest_distance(float global) const {
+    float travelled = 0.0f;
+    for (int round = 0; round <= cfg::N_LEGS; ++round) {
+      float wait = 0.0f;
+      for (int leg = 0; leg < cfg::N_LEGS; ++leg)
+        if (airborne(leg, global + travelled))
+          wait = std::fmax(wait, 1.0f - leg_phase(leg, global + travelled));
+      if (wait == 0.0f) return travelled;
+      travelled += wait;
+    }
+    return -1.0f;
+  }
+
+  // Move a frozen cycle to its next all-grounded phase. Safe only while frozen:
+  // the feet are parked at neutral then, so the phase is just where the next walk
+  // resumes, and resuming from a grounded phase means no foot starts mid-air
+  void settle_phase() {
+    const float d = rest_distance(phase_);
+    if (d > 0.0f) phase_ = wrap01(phase_ + d);
+  }
 
   // Neutral (mid-stride, grounded) foot position: mount point pushed out by
   // STANCE_RADIUS along the leg's mounting yaw. Computed once
@@ -184,6 +249,13 @@ private:
   float phase_ = 0.0f;
   float achieved_vx_ = 0.0f, achieved_vy_ = 0.0f, achieved_wz_deg_ = 0.0f;
   Vec3 neutral_[cfg::N_LEGS];
+
+  // Walk <-> rest transition
+  bool walking_ = false;     // cycle running (feet follow the phase)
+  bool stopping_ = false;    // zero command: finishing the swings in progress
+  float stop_left_ = 0.0f;   // cycles still to run before every foot is down
+  GaitId pending_gait_ = TRIPOD;
+  bool has_pending_ = false; // set_gait() arrived mid-walk; applied at rest
 };
 
 inline Generator::Feet Generator::update(float dt, float vx, float vy,
@@ -223,26 +295,52 @@ inline Generator::Feet Generator::update(float dt, float vx, float vy,
         stride[leg] = stride[leg] * twist_scale;
     }
   }
-  // else: zero command -> freeze. We fall through with advancing == false, which
-  // returns every foot to neutral WITHOUT advancing the phase, so no foot is ever
-  // raised while standing. A continuous-swing gait (tripod, ripple) has no
-  // all-grounded phase, so stillness has to come from leaving the cycle, not from
-  // freezing at some particular phase. (A leg that was mid-swing when the command
-  // hit zero therefore drops straight to neutral; if that ever needs to be graceful
-  // it belongs in the walk<->stand transition of the body/FSM layer, not here.)
+  // else: zero command, stride stays zero.
 
   achieved_vx_ = advancing ? vx * twist_scale : 0.0f;
   achieved_vy_ = advancing ? vy * twist_scale : 0.0f;
   achieved_wz_deg_ = advancing ? wz_deg * twist_scale : 0.0f;
 
+  const float step = dt / cfg::CYCLE_TIME;
+  if (advancing) {
+    // Walking, starting from rest, or a stop cancelled before it completed. The
+    // cycle always rests at an all-grounded phase, so a start lifts no foot
+    // mid-swing
+    walking_ = true;
+    stopping_ = false;
+    phase_ = wrap01(phase_ + step);
+  } else if (walking_) {
+    // Zero command while the legs still cycle. Freezing on the spot would drop a
+    // swinging foot to the ground in one tick (and resuming from that phase would
+    // yank it back up), so keep cycling on a zero stride, which sets the swinging
+    // feet down at neutral, until every swing in progress has landed, then freeze
+    // exactly there
+    if (!stopping_) {
+      stopping_ = true;
+      stop_left_ = std::fmax(rest_distance(phase_), 0.0f); // -1: freeze now
+    }
+    if (step < stop_left_) {
+      phase_ = wrap01(phase_ + step);
+      stop_left_ -= step;
+    } else {
+      phase_ = wrap01(phase_ + stop_left_);
+      walking_ = stopping_ = false;
+      if (has_pending_) {
+        gait_ = pending_gait_;
+        has_pending_ = false;
+        settle_phase();
+      }
+    }
+  }
+
   Feet out;
-  if (!advancing) {
+  if (!walking_) {
+    // At rest: every foot at neutral, on the ground, and the phase frozen
     for (int leg = 0; leg < cfg::N_LEGS; ++leg)
       out.pos[leg] = neutral_[leg];
     return out;
   }
 
-  phase_ = wrap01(phase_ + dt / cfg::CYCLE_TIME);
   for (int leg = 0; leg < cfg::N_LEGS; ++leg) {
     out.pos[leg] = (pat.group_of[leg] < 0)
                        ? neutral_[leg] // idle leg parked at neutral

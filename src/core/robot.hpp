@@ -11,7 +11,8 @@
 //   SETUP     rising: enable() runs the stand-up animation (curl the legs from
 //             wherever they are -> slew to neutral -> raise the body) then -> IDLE.
 //   IDLE      standing, feet at neutral; interpolates body pose. Any velocity -> WALK.
-//   WALK      gait-driven; returns to IDLE when velocity settles to zero.
+//   WALK      gait-driven; returns to IDLE once velocity settles to zero and the
+//             gait has set every foot down.
 //   SHUTDOWN  lowering: shutdown() runs the sit-down animation (legs to neutral ->
 //             lower the body -> curl the legs, femur to max) then cuts power -> OFF.
 //   FAULT     emergency stop: halted and de-energized immediately (no animation);
@@ -254,8 +255,10 @@ private:
     resolve_write();
     integrate_odometry(dt);
 
+    // Still WALK while the gait finishes the steps in progress after a stop
     const bool moving = tvx_ != 0.0f || tvy_ != 0.0f || twz_ != 0.0f ||
-                        cvx_ != 0.0f || cvy_ != 0.0f || cwz_ != 0.0f;
+                        cvx_ != 0.0f || cvy_ != 0.0f || cwz_ != 0.0f ||
+                        gait_.walking();
     state_ = moving ? proto::State::WALK : proto::State::IDLE;
   }
 

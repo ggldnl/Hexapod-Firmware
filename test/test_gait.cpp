@@ -3,7 +3,8 @@
 // Pins down the properties we actually care about:
 //   - zero command  => perfectly still, no foot ever leaves the ground;
 //   - stride grows linearly with commanded speed (constant cadence);
-//   - the reachability clamp caps speed while preserving the turn radius.
+//   - the reachability clamp caps speed while preserving the turn radius;
+//   - stopping, restarting and switching gait never jerk a foot up or down.
 
 #include <cstdio>
 #include <cmath>
@@ -87,14 +88,16 @@ static void still_after_walk() {
     CHECK(frozen,  "phase frozen after stopping");
 }
 
-// Horizontal travel of one foot over a full cycle == its stride length.
+// Horizontal travel of one foot through its stance == its stride length. Stance
+// only: the swing deliberately overshoots the stride ends a little.
 static float x_span_one_cycle(Generator& g, float vx) {
     g.reset();
-    const int N = 360;
+    const int N = 3600;
     const float dt = cfg::CYCLE_TIME / N;
     float lo = 1e9f, hi = -1e9f;
     for (int i = 0; i < N; ++i) {
         const Generator::Feet f = g.update(dt, vx, 0.0f, 0.0f);
+        if (!g.in_stance(cfg::FRONT_RIGHT)) continue;
         const float x = f.pos[cfg::FRONT_RIGHT].x;
         lo = std::fmin(lo, x); hi = std::fmax(hi, x);
     }
@@ -139,11 +142,112 @@ static void clamp_preserves_radius() {
     }
 }
 
+static const GaitId GAITS[] = { gait::TRIPOD, gait::WAVE, gait::RIPPLE };
+static const char* NAMES[]  = { "tripod", "wave", "ripple" };
+static const int CYCLE_TICKS = int(cfg::CYCLE_TIME / DT + 0.5f);
+
+// Largest per-tick change of any foot's height over a cycle of steady walking:
+// the yardstick for "no jump" in the transition tests below.
+static float steady_dz(GaitId gid, float vx) {
+    Generator g; g.set_gait(gid);
+    float prev[cfg::N_LEGS] = {}, worst = 0.0f;
+    for (int i = 0; i < 2 * CYCLE_TICKS; ++i) {
+        const Generator::Feet f = g.update(DT, vx, 0.0f, 0.0f);
+        for (int leg = 0; leg < cfg::N_LEGS; ++leg) {
+            if (i >= CYCLE_TICKS) worst = std::fmax(worst, std::fabs(f.pos[leg].z - prev[leg]));
+            prev[leg] = f.pos[leg].z;
+        }
+    }
+    return worst;
+}
+
+// Tracks every foot's height across ticks and flags any change bigger than limit.
+struct HeightWatch {
+    float prev[cfg::N_LEGS] = {};
+    float limit;
+    explicit HeightWatch(float lim) : limit(lim) {}
+    bool see(const Generator::Feet& f) {
+        bool ok = true;
+        for (int leg = 0; leg < cfg::N_LEGS; ++leg) {
+            if (std::fabs(f.pos[leg].z - prev[leg]) > limit) ok = false;
+            prev[leg] = f.pos[leg].z;
+        }
+        return ok;
+    }
+};
+
+// Stop at every point of the cycle, then start again: the swings in progress land
+// before the cycle freezes (within one swing), the robot rests on all feet, and
+// neither the stop nor the restart moves a foot vertically faster than walking does.
+static void stop_and_restart_on_the_ground() {
+    std::printf("stop/restart from any phase: feet land first, no height jumps (all gaits)\n");
+    const float v = 150.0f;
+    for (int gi = 0; gi < 3; ++gi) {
+        const float limit = steady_dz(GAITS[gi], v) * 1.05f + 1e-3f;
+        const float swing = (1.0f - cfg::GAIT[GAITS[gi]].duty_factor) * cfg::CYCLE_TIME;
+        const int max_stop_ticks = int(swing / DT) + 1;
+        bool smooth_stop = true, prompt = true, at_rest = true, smooth_start = true;
+        for (int k = 0; k < CYCLE_TICKS; ++k) {
+            Generator g; g.set_gait(GAITS[gi]);
+            HeightWatch w(limit);
+            for (int i = 0; i < 2 * CYCLE_TICKS + k; ++i) w.see(g.update(DT, v, 0.0f, 0.0f));
+
+            int ticks = 0;
+            do {
+                if (!w.see(g.update(DT, 0.0f, 0.0f, 0.0f))) smooth_stop = false;
+            } while (g.walking() && ++ticks <= max_stop_ticks);
+            if (g.walking()) prompt = false;
+
+            const float frozen = g.phase();
+            for (int i = 0; i < 10; ++i) {
+                const Generator::Feet f = g.update(DT, 0.0f, 0.0f, 0.0f);
+                if (!w.see(f)) smooth_stop = false;
+                for (int leg = 0; leg < cfg::N_LEGS; ++leg)
+                    if (!same(f.pos[leg], g.neutral(leg)) || f.pos[leg].z != 0.0f) at_rest = false;
+                if (g.phase() != frozen || g.walking()) at_rest = false;
+            }
+
+            for (int i = 0; i < CYCLE_TICKS; ++i)
+                if (!w.see(g.update(DT, v, 0.0f, 0.0f))) smooth_start = false;
+        }
+        char m[96];
+        std::snprintf(m, sizeof m, "%s: no foot drops when stopping", NAMES[gi]);          CHECK(smooth_stop, m);
+        std::snprintf(m, sizeof m, "%s: stop completes within one swing", NAMES[gi]);      CHECK(prompt, m);
+        std::snprintf(m, sizeof m, "%s: rests frozen with every foot at neutral", NAMES[gi]); CHECK(at_rest, m);
+        std::snprintf(m, sizeof m, "%s: no foot jumps up when restarting", NAMES[gi]);     CHECK(smooth_start, m);
+    }
+}
+
+// A gait change mid-walk would re-map every leg's phase at once, so it is held
+// until the walk is at rest; at rest it applies immediately.
+static void gait_switch_waits_for_rest() {
+    std::printf("set_gait mid-walk is held until the walk is at rest\n");
+    const float v = 150.0f;
+    Generator g; g.set_gait(gait::TRIPOD);
+    HeightWatch w(std::fmax(steady_dz(gait::TRIPOD, v), steady_dz(gait::WAVE, v)) * 1.05f + 1e-3f);
+    bool smooth = true;
+    for (int i = 0; i < CYCLE_TICKS + 7; ++i) smooth &= w.see(g.update(DT, v, 0.0f, 0.0f));
+    g.set_gait(gait::WAVE);
+    CHECK(g.gait() == gait::TRIPOD, "still tripod right after the request");
+    for (int i = 0; i < CYCLE_TICKS; ++i) smooth &= w.see(g.update(DT, v, 0.0f, 0.0f));
+    CHECK(g.gait() == gait::TRIPOD, "still tripod while walking");
+    for (int i = 0; i < CYCLE_TICKS && g.walking(); ++i) smooth &= w.see(g.update(DT, 0.0f, 0.0f, 0.0f));
+    CHECK(!g.walking(), "came to rest");
+    CHECK(g.gait() == gait::WAVE, "switched to wave once at rest");
+    for (int i = 0; i < CYCLE_TICKS; ++i) smooth &= w.see(g.update(DT, v, 0.0f, 0.0f));
+    CHECK(smooth, "no height jump across the whole switch");
+    for (int i = 0; i < CYCLE_TICKS && g.walking(); ++i) g.update(DT, 0.0f, 0.0f, 0.0f);
+    g.set_gait(gait::RIPPLE);
+    CHECK(g.gait() == gait::RIPPLE, "at rest the switch is immediate");
+}
+
 int main() {
     neutral_geometry();
     still_from_rest();
     still_after_walk();
     stride_scales();
     clamp_preserves_radius();
+    stop_and_restart_on_the_ground();
+    gait_switch_waits_for_rest();
     return test_summary("gait");
 }
